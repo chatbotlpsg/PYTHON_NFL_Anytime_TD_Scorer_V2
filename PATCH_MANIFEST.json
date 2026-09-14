@@ -1,0 +1,98 @@
+{
+  "patch": "NFL-PLAYER-PROP-FULL-SLATE-FORECAST-BOARDS-v0.3.0a3",
+  "model_version": "0.3.0a3",
+  "purpose": "Add market-blind receiving/rushing/passing calibration boards, market-lined most-probable-side boards, immutable forecast snapshots, 500k production default, and prevent mainline market data from overwriting Layer-1 football distributions.",
+  "validation": {
+    "tests_passed": 27,
+    "compile_status": 0,
+    "demo_handoff_forecast_boards": "PASS",
+    "week1_50k_validation": {
+      "all_forecast_rows": 1120,
+      "receiving_rows": 768,
+      "rushing_rows": 256,
+      "passing_rows": 96
+    }
+  },
+  "files": [
+    {
+      "path": ".env.example",
+      "bytes": 171,
+      "sha256": "8d4aeb0c691db61522cc4ad993aa4ef4a407f6514d96b575f14e15fb9851ee8f"
+    },
+    {
+      "path": "APPLY_FORECAST_BOARDS_PATCH_GIT_BASH.md",
+      "bytes": 3314,
+      "sha256": "581c7ab28712fb65846e068aa360f2313f4c75757b842af8bbf0f7ddfe8e414a"
+    },
+    {
+      "path": "INSTALL_COMMANDS_GIT_BASH.md",
+      "bytes": 3179,
+      "sha256": "7c3184c9aa83b1983485adb3519febd9a99a174353018283df2f9928830ca67d"
+    },
+    {
+      "path": "README.md",
+      "bytes": 7458,
+      "sha256": "439d4b23f6cb347386e26eea385f1062450573ce8e9b34438f36035b1d85c16a"
+    },
+    {
+      "path": "configs/nfl_2026.yaml",
+      "bytes": 2101,
+      "sha256": "9740cd97d136518b1e83228977367ace9fe81aaba667817bd5bbcb7da7f68aa2"
+    },
+    {
+      "path": "docs/BUILD_VALIDATION_REPORT.md",
+      "bytes": 3197,
+      "sha256": "a283d8208766f20deb69c389f221e29e87c3f733603db887c098a0c45a51c174"
+    },
+    {
+      "path": "docs/FORECAST_BOARD_ARCHITECTURE.md",
+      "bytes": 3207,
+      "sha256": "887af2063ac765119d3d0303c3ed41d0cf20a68be95dd3025af32ae4cab37359"
+    },
+    {
+      "path": "docs/LAYER1_TO_FULL_BUILD_CHANGELOG.md",
+      "bytes": 2925,
+      "sha256": "795c4c3045370f0ee97d65cbc460cc65a00dd7e15235639e0746c71b758f2edb"
+    },
+    {
+      "path": "pyproject.toml",
+      "bytes": 749,
+      "sha256": "4cd896ec49147bb6e61f6036ca3d96d88a31c2ecc8f8d7df50abf06173cdcef7"
+    },
+    {
+      "path": "src/nfl_model/__init__.py",
+      "bytes": 75,
+      "sha256": "a9f981f979feec0074cd74a3b7546b579b9e06f82b4397e6a0b4ce23b55f966d"
+    },
+    {
+      "path": "src/nfl_model/boards/forecast.py",
+      "bytes": 19603,
+      "sha256": "de4d0b2cf2969d61e443e2c3d96043bcabf3644dc03fd5a2320b732c698bf1e6"
+    },
+    {
+      "path": "src/nfl_model/cli.py",
+      "bytes": 9538,
+      "sha256": "2a662cb3804e83433c1c7ab26ad62c0e97a11061270de217994af4208e3f9f8f"
+    },
+    {
+      "path": "src/nfl_model/pipeline.py",
+      "bytes": 58679,
+      "sha256": "9a2bf59a8a53cc9096e1b7849e656dd47e580cc9cd16ada704197b3e247eaeda"
+    },
+    {
+      "path": "src/nfl_model/providers/nws/client.py",
+      "bytes": 1471,
+      "sha256": "6eb7c5be43805635ce4a51ee6407a6ca3b9701a07184345db0c6a2e9627b9384"
+    },
+    {
+      "path": "tests/integration/test_demo_pipeline.py",
+      "bytes": 1202,
+      "sha256": "011a67422c47a5a5496936769a9a617b2de04704680b3d4fb7279e11af29dd9e"
+    },
+    {
+      "path": "tests/unit/test_forecast_boards.py",
+      "bytes": 5037,
+      "sha256": "ce533d8b6803559419d3607de523408aa09122a9aa0cf00e627c7c0e8fd4417f"
+    }
+  ]
+}

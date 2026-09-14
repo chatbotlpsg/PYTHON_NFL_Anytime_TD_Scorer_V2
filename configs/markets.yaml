@@ -1,0 +1,29 @@
+markets:
+  player_receptions:
+    tier: A1
+    stat: receptions
+    positions: [WR, TE, RB]
+  player_rush_attempts:
+    tier: A1
+    stat: rushing_attempts
+    positions: [RB]
+  player_pass_attempts:
+    tier: A1
+    stat: passing_attempts
+    positions: [QB]
+  player_pass_completions:
+    tier: A2
+    stat: completions
+    positions: [QB]
+  player_reception_yds:
+    tier: B
+    stat: receiving_yards
+    positions: [WR, TE, RB]
+  player_rush_yds:
+    tier: B
+    stat: rushing_yards
+    positions: [RB]
+  player_pass_yds:
+    tier: B
+    stat: passing_yards
+    positions: [QB]

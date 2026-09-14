@@ -1,0 +1,15 @@
+PROP_BOARD_COLUMNS = [
+    "candidate_id", "run_id", "aita_event_id", "odds_api_event_id", "aita_player_id", "player_name", "position", "team", "opponent",
+    "market_key", "side", "line", "bookmaker", "american_odds", "decimal_odds", "snapshot_time_utc", "market_snapshot_timestamp",
+    "market_last_update", "book_last_update", "market_age_minutes", "source", "source_response_hash",
+    "market_raw_implied_prob", "market_novig_prob",
+    "p_raw", "p_calibrated", "p_blend", "p_conservative", "p_push",
+    "fair_odds_raw", "fair_odds_calibrated", "fair_odds_blended", "fair_odds_conservative",
+    "ev_raw_pct", "ev_calibrated_pct", "ev_blended_pct", "ev_conservative_pct",
+    "buy_to_price", "hard_stop_price", "minimum_required_ev_pct",
+    "role_certainty_score", "model_agreement_score", "model_dispersion", "confidence_score", "data_freshness_score",
+    "market_trust_score", "model_market_disagreement_pp", "probability_edge_pp", "uncertainty_haircut_fraction",
+    "probability_layer_decomposition", "calibration_method", "market_trust_method",
+    "convergence_status", "convergence_max_recent_delta", "convergence_estimates",
+    "edge_type", "thesis_id", "model_status", "rejection_reason",
+]

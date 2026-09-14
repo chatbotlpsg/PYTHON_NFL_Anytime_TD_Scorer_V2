@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aita-nfl-scorer-model"
+version = "0.1.0a1"
+description = "AITA NFL touchdown scorer probability, EV, and Trading-Agent handoff pipeline"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "polars>=1.17",
+  "pyarrow>=17",
+  "requests>=2.32",
+  "PyYAML>=6.0.2",
+  "python-dotenv>=1.0.1",
+  "tabulate>=0.9",
+  "nflreadpy>=0.1.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-cov>=5.0"]
+
+[project.scripts]
+nfl-model = "nfl_model.cli:main"
+nfl-scorer = "nfl_model.scorer_cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

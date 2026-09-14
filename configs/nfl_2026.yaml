@@ -1,0 +1,93 @@
+project:
+  name: AITA NFL Touchdown Scorer Probability + EV Pipeline
+  season: 2026
+  model_version: 0.1.0a1
+  random_seed: 260901
+
+history:
+  seasons: [2023, 2024, 2025]
+  ewm_halflife_weeks: 6.0
+  minimum_player_games: 2
+
+simulation:
+  development_draws: 50000
+  production_draws: 500000
+  max_draws: 500000
+  convergence_checkpoints: [25000, 50000, 100000, 200000, 500000]
+  probability_tolerance: 0.004
+
+odds:
+  sport_key: americanfootball_nfl
+  bookmakers: [draftkings, fanduel, betrivers]
+  mainlines: [h2h, spreads, totals]
+  opportunity_markets:
+    - player_receptions
+    - player_rush_attempts
+    - player_pass_attempts
+    - player_pass_completions
+  production_markets:
+    - player_reception_yds
+    - player_rush_yds
+    - player_pass_yds
+  monthly_credit_reserve: 100
+  cache_ttl_minutes: 30
+  timeout_seconds: 20
+  max_retries: 3
+
+pricing:
+  mainline_anchor_weight: 0.62
+  initial_ev_floors:
+    player_receptions: 0.04
+    player_rush_attempts: 0.04
+    player_pass_attempts: 0.035
+    player_pass_completions: 0.035
+    player_reception_yds: 0.05
+    player_rush_yds: 0.05
+    player_pass_yds: 0.045
+  market_trust:
+    h2h: 0.80
+    spreads: 0.82
+    totals: 0.82
+    player_pass_yds: 0.58
+    player_reception_yds: 0.50
+    player_rush_yds: 0.50
+    player_receptions: 0.46
+    player_rush_attempts: 0.44
+    player_pass_attempts: 0.48
+    player_pass_completions: 0.50
+  extreme_disagreement_pp: 0.18
+  buy_to_extra_ev_margin: 0.01
+  hard_stop_extra_ev_margin: 0.00
+  max_market_age_minutes: 90
+
+uncertainty:
+  week1_multiplier: 1.35
+  rookie_penalty: 0.12
+  new_team_penalty: 0.08
+  new_coordinator_penalty: 0.06
+  injury_penalty: 0.12
+  provider_degraded_penalty: 0.08
+  model_disagreement_penalty: 0.10
+  max_edge_haircut_fraction: 0.80
+
+providers:
+  espn_base: https://site.api.espn.com/apis/site/v2/sports/football/nfl
+  nws_base: https://api.weather.gov
+  odds_base: https://api.the-odds-api.com/v4
+  request_timeout_seconds: 20
+
+storage:
+  raw_dir: data/raw
+  normalized_dir: data/normalized
+  features_dir: data/features
+  cache_dir: data/cache
+  outputs_dir: data/outputs
+
+scoring:
+  market_key: player_anytime_td
+  straight_ev_floor: 0.06
+  parlay_ev_floor: 0.08
+  market_trust: 0.28
+  other_touchdown_share: 0.12
+  joint_pair_top_n: 30
+  joint_triple_top_n: 15
