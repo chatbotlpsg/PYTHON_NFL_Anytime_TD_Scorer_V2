@@ -105,21 +105,39 @@ def _final_markdown(run_id: str, boards: dict[str, pd.DataFrame]) -> str:
         f"# NFL Touchdown Scorer Boards — {run_id}", "",
         "Python probability/EV snapshot only. Live execution and parlay quoting belong to the separate Trading Agent.", "",
         "## Doctrine", "",
-        "- Matchup and slate probability boards are market-blind scorer forecasts.",
+        "- Current ESPN roster verification is a hard gate. Unverified/stale historical names cannot enter primary scorer or EV boards.",
+        "- Slate position boards and matchup probability boards are market-blind and are produced before sportsbook pricing.",
+        "- ESPN fantasy plus public FFToday/FantasyPros/PFR data are capped role/opportunity corroboration layers, not direct sportsbook-price inputs. Yahoo remains optional and is not required.",
+        "- Defensive TD vulnerability is based on scores allowed by position and field location; yardage alone is not treated as red-zone weakness.",
+        "- Player TD style distinguishes goal-line/red-zone scoring from 21+ yard explosive scoring.",
+        "- QB goal-line/sneak usage is modeled as competition for RB/receiver touchdown share.",
         "- EV boards are price-sensitive and require the frozen sportsbook reference price.",
-        "- Joint pair/triple boards are empirical shared-Monte-Carlo probabilities; do not replace them with independence multiplication.",
-        "- The Trading Agent must re-check current straight and parlay prices before acting.", "",
+        "- Joint pair/triple boards are empirical shared-Monte-Carlo probabilities; do not replace them with independence multiplication.", "",
     ]
-    for title, key, cols in [
-        ("Most Probable Scorers — Slate", "slate", ["slate_rank", "game_label", "player_name", "position", "team", "p_anytime_td_raw", "p_2plus_td_raw", "fair_anytime_td_odds_raw", "role_certainty_score"]),
-        ("Most Probable Scorers — By Matchup", "matchup", ["game_label", "matchup_rank", "player_name", "position", "team", "p_anytime_td_raw", "p_2plus_td_raw", "fair_anytime_td_odds_raw"]),
-        ("EV+ Scorer Board", "ev", ["candidate_id", "game_label", "player_name", "team", "bookmaker", "american_odds", "p_conservative", "fair_odds_conservative", "ev_conservative_pct", "buy_to_price", "hard_stop_price", "confidence_score"]),
-        ("EV Edge Leaderboard", "leaderboard", ["candidate_id", "game_label", "player_name", "team", "bookmaker", "american_odds", "p_conservative", "ev_conservative_pct", "confidence_score"]),
-    ]:
+    ordered = [
+        ("Most Probable QB Scorers — Slate", "qb"),
+        ("Most Probable RB Scorers — Slate", "rb"),
+        ("Most Probable WR Scorers — Slate", "wr"),
+        ("Most Probable TE Scorers — Slate", "te"),
+        ("Most Probable Scorers — Whole Slate", "slate"),
+        ("Most Probable Scorers — By Matchup", "matchup"),
+        ("EV+ Scorer Board", "ev"),
+        ("EV Edge Leaderboard", "leaderboard"),
+    ]
+    cols = [
+        "position_slate_rank", "slate_rank", "matchup_rank", "game_label", "player_name", "position", "team", "opponent",
+        "p_anytime_td_raw", "p_rushing_td_raw", "p_receiving_td_raw", "fair_anytime_td_odds_raw",
+        "depth_rank", "espn_fantasy_projected_points", "fantasy_projection_position_rank",
+        "fftoday_proj_fpts", "fftoday_anytime_td_signal", "fantasypros_pos_rank", "fantasypros_rank_stddev", "pfr_pos_rank",
+        "external_consensus_status", "external_consensus_score", "sharp_board_eligible",
+        "vulnerability_verdict", "td_style", "qb_goal_line_competition_verdict", "role_certainty_score",
+        "bookmaker", "american_odds", "p_conservative", "ev_conservative_pct", "buy_to_price", "hard_stop_price", "confidence_score",
+    ]
+    for title, key in ordered:
         df = boards.get(key, pd.DataFrame())
         parts += [f"## {title}", ""]
         if df.empty:
-            parts += ["No rows.", ""]
+            parts += ["No qualified rows.", ""]
         else:
             keep = [c for c in cols if c in df.columns]
             parts += [df[keep].head(200).to_markdown(index=False), ""]
@@ -162,7 +180,17 @@ def build_scorer_handoff(
     run_dir.mkdir(parents=True)
 
     snapshot_time = utc_now_iso()
-    prob = build_scorer_probability_boards(state.get("scorer_sim_summary", pd.DataFrame()), state["slate"], state["player_map"], run_id, snapshot_time)
+    prob = build_scorer_probability_boards(
+        state.get("scorer_sim_summary", pd.DataFrame()),
+        state["slate"],
+        state["player_map"],
+        run_id,
+        snapshot_time,
+        probability_floor=float(cfg.get("scoring", "primary_board_probability_floor", default=0.08)),
+        matchup_max_players=int(cfg.get("scoring", "primary_matchup_max_players", default=12)),
+        position_max_players=int(cfg.get("scoring", "primary_position_max_players", default=24)),
+        slate_max_players=int(cfg.get("scoring", "primary_slate_max_players", default=60)),
+    )
     joint = build_joint_scorer_boards(
         prob["slate"], draws, run_id,
         top_pair_candidates=int(cfg.get("scoring", "joint_pair_top_n", default=30)),
@@ -207,8 +235,23 @@ def build_scorer_handoff(
     _write_csv(state.get("team_state", pd.DataFrame()), run_dir / f"NFL_SCORER_TEAM_STATE_{tag}.csv")
     _write_csv(state.get("scorer_state", pd.DataFrame()), run_dir / f"NFL_SCORER_PLAYER_STATE_{tag}.csv")
     _write_csv(game_pricing, run_dir / f"NFL_SCORER_GAME_CONTEXT_BOARD_{tag}.csv")
-    _write_csv(prob["matchup"], run_dir / f"NFL_SCORER_MATCHUP_PROBABILITY_BOARD_{tag}.csv")
+    _write_csv(prob["qb"], run_dir / f"NFL_SCORER_QB_SLATE_PROBABILITY_BOARD_{tag}.csv")
+    _write_csv(prob["rb"], run_dir / f"NFL_SCORER_RB_SLATE_PROBABILITY_BOARD_{tag}.csv")
+    _write_csv(prob["wr"], run_dir / f"NFL_SCORER_WR_SLATE_PROBABILITY_BOARD_{tag}.csv")
+    _write_csv(prob["te"], run_dir / f"NFL_SCORER_TE_SLATE_PROBABILITY_BOARD_{tag}.csv")
     _write_csv(prob["slate"], run_dir / f"NFL_SCORER_SLATE_PROBABILITY_BOARD_{tag}.csv")
+    _write_csv(prob["matchup"], run_dir / f"NFL_SCORER_MATCHUP_PROBABILITY_BOARD_{tag}.csv")
+    _write_csv(prob["all"], run_dir / f"NFL_SCORER_FULL_MODEL_AUDIT_BOARD_{tag}.csv")
+    _write_csv(state.get("player_map", pd.DataFrame()), run_dir / f"NFL_SCORER_CURRENT_ROSTER_VALIDATION_BOARD_{tag}.csv")
+    _write_csv(state.get("espn_team_leaders", pd.DataFrame()), run_dir / f"NFL_SCORER_ESPN_TOP_STATS_BOARD_{tag}.csv")
+    _write_csv(state.get("fantasy_context", pd.DataFrame()), run_dir / f"NFL_SCORER_FANTASY_CONTEXT_BOARD_{tag}.csv")
+    _write_csv(state.get("fftoday", pd.DataFrame()), run_dir / f"NFL_SCORER_FFTODAY_WEEKLY_PROJECTIONS_{tag}.csv")
+    _write_csv(state.get("fantasypros", pd.DataFrame()), run_dir / f"NFL_SCORER_FANTASYPROS_WEEKLY_RANKINGS_{tag}.csv")
+    _write_csv(state.get("pfr_fantasy", pd.DataFrame()), run_dir / f"NFL_SCORER_PFR_CURRENT_FANTASY_ACTUALS_{tag}.csv")
+    _write_csv(state.get("external_fantasy_context", pd.DataFrame()), run_dir / f"NFL_SCORER_EXTERNAL_FANTASY_CONSENSUS_BOARD_{tag}.csv")
+    _write_csv(state.get("defense_td_state", pd.DataFrame()), run_dir / f"NFL_SCORER_DEFENSIVE_TD_VULNERABILITY_BOARD_{tag}.csv")
+    _write_csv(state.get("td_style_state", pd.DataFrame()), run_dir / f"NFL_SCORER_PLAYER_TD_STYLE_BOARD_{tag}.csv")
+    _write_csv(state.get("qb_goal_line_state", pd.DataFrame()), run_dir / f"NFL_SCORER_QB_GOAL_LINE_COMPETITION_BOARD_{tag}.csv")
     _write_csv(priced, run_dir / f"NFL_SCORER_MARKET_SNAPSHOT_{tag}.csv")
     _write_csv(ev, run_dir / f"NFL_SCORER_EV_PLAY_BOARD_{tag}.csv")
     _write_csv(ev.sort_values(["aita_event_id", "matchup_ev_rank"]) if not ev.empty else ev, run_dir / f"NFL_SCORER_MATCHUP_EV_PLAY_BOARD_{tag}.csv")
@@ -224,7 +267,10 @@ def build_scorer_handoff(
     for _, game in state["slate"].iterrows():
         eid = str(game["aita_event_id"])
         label = re.sub(r"[^A-Za-z0-9_-]+", "_", f"{game['away_team']}_AT_{game['home_team']}").strip("_")
-        _write_csv(prob["matchup"][prob["matchup"]["aita_event_id"].astype(str).eq(eid)], matchup_dir / f"SCORERS_{label}.csv")
+        game_prob = prob["matchup"][prob["matchup"]["aita_event_id"].astype(str).eq(eid)]
+        _write_csv(game_prob, matchup_dir / f"SCORERS_{label}.csv")
+        for pos in ["QB", "RB", "WR", "TE"]:
+            _write_csv(game_prob[game_prob["position"].astype(str).eq(pos)], matchup_dir / f"SCORERS_{pos}_{label}.csv")
         if not ev.empty:
             _write_csv(ev[ev["aita_event_id"].astype(str).eq(eid)].sort_values("matchup_ev_rank"), matchup_dir / f"EV_{label}.csv")
         else:
@@ -240,8 +286,9 @@ def build_scorer_handoff(
         "model_version": __version__,
         "source_foundation": "AITA_NFL_PLAYER_PROP_PIPELINE_0.3.0a4",
         "market": "player_anytime_td",
-        "scorer_definition": "OFFENSIVE_RUSHING_OR_RECEIVING_TOUCHDOWN;PASSING_TD_DOES_NOT_CREDIT_PASSER;RETURN_AND_FUMBLE_RECOVERY_PLAYER_PATHS_NOT_NAMED_IN_V0.1",
-        "probability_board_doctrine": "MARKET_BLIND",
+        "scorer_definition": "OFFENSIVE_RUSHING_OR_RECEIVING_TOUCHDOWN;PASSING_TD_DOES_NOT_CREDIT_PASSER;RETURN_AND_FUMBLE_RECOVERY_PLAYER_PATHS_NOT_NAMED_IN_V0.2",
+        "probability_board_doctrine": "MARKET_BLIND_CURRENT_ROSTER_VERIFIED_ROLE_GATED_EXTERNAL_CHALLENGER_BOUNDED",
+        "external_consensus_doctrine": "FFTODAY_45_FANTASYPROS_35_PFR_20_NORMALIZED_OVER_AVAILABLE_SOURCES;MULTIPLIER_CAPPED_0.90_1.10;MULTISOURCE_DISAGREEMENT_CAN_BLOCK_SHARP_EV_PROMOTION",
         "ev_board_doctrine": "PRICE_SENSITIVE_CONSERVATIVE_EV",
         "parlay_doctrine": "TRADING_AGENT_MUST_USE_EMPIRICAL_JOINT_PROBABILITY_AND_LIVE_PARLAY_PAYOUT",
         "pipeline_boundary": boundary_manifest(),
@@ -376,7 +423,7 @@ def run_scorer_live(
     lineage = {
         "scoreboard_snapshot": str(state.get("scoreboard_snapshot")),
         "same_data_inputs_as_player_prop_model": True,
-        "football_inputs": ["ESPN_SCOREBOARD", "ESPN_ROSTERS", "ESPN_DEPTH_CHARTS", "ESPN_INJURIES", "ESPN_TRANSACTIONS", "NFLVERSE_PBP", "NFLVERSE_PLAYER_STATS", "NFLVERSE_SNAP_COUNTS", "NWS_WEATHER"],
+        "football_inputs": ["ESPN_SCOREBOARD", "ESPN_ROSTERS", "ESPN_DEPTH_CHARTS", "ESPN_INJURIES", "ESPN_TRANSACTIONS", "ESPN_TEAM_LEADERS", "ESPN_FANTASY_PROJECTIONS", "FFTODAY_PUBLIC_WEEKLY_PROJECTIONS", "FANTASYPROS_PUBLIC_WEEKLY_CONSENSUS", "PFR_PUBLIC_CURRENT_FANTASY_ACTUALS", "YAHOO_FANTASY_OPTIONAL_OAUTH", "NFLVERSE_PBP", "NFLVERSE_PLAYER_STATS", "NFLVERSE_SNAP_COUNTS", "NWS_WEATHER"],
         "pricing_inputs": ["THE_ODDS_API_MAINLINES", "THE_ODDS_API_PLAYER_ANYTIME_TD"],
         "scorer_reconciliation": state.get("scorer_reconciliation", []),
         "player_simulation_reconciliation": player_recon,
@@ -409,10 +456,10 @@ def run_scorer_demo(cfg: AppConfig, season: int, week: int, draws_n: int = 50000
         summary.append({"aita_event_id": eid, "team": team, "aita_player_id": pid, "player_name": name, "position": pos,
                         "expected_touchdowns": float(td.mean()), "p_anytime_td_raw": float(hit.mean()), "p_2plus_td_raw": float((td>=2).mean()), "p_3plus_td_raw": 0.0,
                         "historical_td_per_game": p, "historical_td_per_opportunity": .04, "td_propensity_multiplier": 1.0, "scorer_games_observed": 20, "scorer_prior_source": "DEMO"})
-        pm_rows.append({"aita_player_id": pid, "full_name": name, "position": pos, "current_team": team, "role_certainty_score": 90.0, "data_freshness_score": 100.0, "critical_current_state_ok": True, "available_for_simulation": True})
+        pm_rows.append({"aita_player_id": pid, "full_name": name, "position": pos, "current_team": team, "role_certainty_score": 90.0, "data_freshness_score": 100.0, "critical_current_state_ok": True, "roster_verified_current": True, "roster_gate_reason": "DEMO_CURRENT_ROSTER", "depth_rank": 1, "primary_scorer_eligible": True, "sharp_board_eligible": True, "external_consensus_status": "DEMO", "external_consensus_multiplier": 1.0, "available_for_simulation": True})
     player_map = pd.DataFrame(pm_rows)
     state = {"slate": slate, "player_map": player_map, "scorer_sim_summary": pd.DataFrame(summary), "scorer_state": pd.DataFrame(summary),
-             "team_state": pd.DataFrame(), "provider_health": {"demo": "OK"}, "scorer_reconciliation": [{"aita_event_id": eid, "team": "DEMO", "status": "OK"}]}
+             "team_state": pd.DataFrame(), "espn_team_leaders": pd.DataFrame(), "fantasy_context": pd.DataFrame(), "fftoday": pd.DataFrame(), "fantasypros": pd.DataFrame(), "pfr_fantasy": pd.DataFrame(), "external_fantasy_context": pd.DataFrame(), "defense_td_state": pd.DataFrame(), "td_style_state": pd.DataFrame(), "qb_goal_line_state": pd.DataFrame(), "provider_health": {"demo": "OK"}, "scorer_reconciliation": [{"aita_event_id": eid, "team": "DEMO", "status": "OK"}]}
     market_rows = []
     prices = {"P1": 135, "P2": 190, "P3": 260, "P4": 220}
     for pid, name, pos, team, p in players:

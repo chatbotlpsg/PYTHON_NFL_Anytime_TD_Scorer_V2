@@ -78,3 +78,24 @@ class ESPNClient:
 
     def get_game_summary(self, event_id: str) -> dict:
         return self._get("summary", {"event": event_id})
+
+    def get_team_leaders(self, team_id: str) -> dict:
+        return self._get(f"teams/{team_id}/leaders")
+
+    def get_athlete_overview(self, athlete_id: str) -> dict:
+        # Richer athlete surface; provider schema is intentionally isolated here.
+        url = f"https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/athletes/{athlete_id}/overview"
+        last_exc: Exception | None = None
+        for attempt in range(self.max_retries):
+            try:
+                r = self.session.get(url, timeout=self.timeout)
+                r.raise_for_status()
+                data = r.json()
+                if not isinstance(data, dict):
+                    raise ValueError("ESPN athlete overview expected object")
+                return data
+            except Exception as exc:
+                last_exc = exc
+                if attempt + 1 < self.max_retries:
+                    time.sleep(0.6 * (2**attempt))
+        raise RuntimeError(f"ESPN athlete overview failed: {athlete_id}") from last_exc

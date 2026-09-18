@@ -1,4 +1,4 @@
-TEAM_ALIASES = {"JAC": "JAX", "WSH": "WAS", "LAR": "LA"}
+TEAM_ALIASES = {"JAC": "JAX", "WSH": "WAS", "LAR": "LA", "GNB": "GB", "KAN": "KC", "LVR": "LV", "NWE": "NE", "NOR": "NO", "SFO": "SF", "TAM": "TB"}
 
 TEAM_FULL_NAMES = {
     "ARI": "Arizona Cardinals", "ATL": "Atlanta Falcons", "BAL": "Baltimore Ravens", "BUF": "Buffalo Bills",

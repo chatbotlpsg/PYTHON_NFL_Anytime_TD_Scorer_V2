@@ -128,10 +128,31 @@ def simulate_scorers(
                 pool["role_certainty_score"] = pool["aita_player_id"].astype(str).map(role_map).fillna(50.0)
                 pool["available_for_simulation"] = pool["aita_player_id"].astype(str).map(avail_map).fillna(True)
                 pool = pool[pool["available_for_simulation"].astype(bool)]
+            if "primary_scorer_eligible" not in pool.columns:
+                pool["primary_scorer_eligible"] = True
+            def _pool_num(col: str, default: float) -> pd.Series:
+                if col not in pool.columns:
+                    return pd.Series(default, index=pool.index, dtype=float)
+                return pd.to_numeric(pool[col], errors="coerce").fillna(default)
+            pool["fantasy_role_multiplier"] = _pool_num("fantasy_role_multiplier", 1.0).clip(0.92, 1.08)
+            pool["external_consensus_multiplier"] = _pool_num("external_consensus_multiplier", 1.0).clip(0.90, 1.10)
+            pool["defense_td_multiplier"] = _pool_num("defense_td_multiplier", 1.0).clip(0.86, 1.14)
+            pool["td_repeatability_multiplier"] = _pool_num("td_repeatability_multiplier", 0.98).clip(0.90, 1.08)
+            pool["qb_goal_line_competition_multiplier"] = _pool_num("qb_goal_line_competition_multiplier", 1.0).clip(0.78, 1.30)
+            pool["primary_pool_multiplier"] = np.where(pool["primary_scorer_eligible"].astype(bool), 1.0, 0.46)
+            pool["context_weight_multiplier"] = (
+                pool["fantasy_role_multiplier"]
+                * pool["external_consensus_multiplier"]
+                * pool["defense_td_multiplier"]
+                * pool["td_repeatability_multiplier"]
+                * pool["qb_goal_line_competition_multiplier"]
+                * pool["primary_pool_multiplier"]
+            ).clip(0.30, 1.35)
             pool["sort_score"] = (
                 pd.to_numeric(pool.get("historical_td_per_game", 0.0), errors="coerce").fillna(0.0) * 3.0
                 + pd.to_numeric(pool.get("role_certainty_score", 50.0), errors="coerce").fillna(50.0) / 100.0
-            )
+                + _pool_num("espn_fantasy_projected_points", 0.0) / 25.0
+            ) * pool["context_weight_multiplier"]
             pool = pool.sort_values("sort_score", ascending=False).head(16).reset_index(drop=True)
             if pool.empty:
                 continue
@@ -152,7 +173,8 @@ def simulate_scorers(
                     p=pool.iloc[j]; pos=str(p["position"])
                     opp=_rush_opportunity(draws,p,n,rng)
                     prop=float(np.clip(p.get("rush_td_propensity_multiplier",1.0) or 1.0,0.40,2.50))
-                    cols.append(np.maximum(0.001, opp*prop*RUSH_POSITION_WEIGHT.get(pos,0.7)))
+                    context=float(np.clip(p.get("context_weight_multiplier",1.0) or 1.0,0.30,1.35))
+                    cols.append(np.maximum(0.001, opp*prop*RUSH_POSITION_WEIGHT.get(pos,0.7)*context))
                 alloc, other_rush = _allocate_dynamic_multinomial(rng, rushing_tds, np.column_stack(cols), other_share)
                 for local,j in enumerate(rush_idx): rush_alloc[:,j]=alloc[:,local]
             else:
@@ -164,7 +186,8 @@ def simulate_scorers(
                     p=pool.iloc[j]; pos=str(p["position"])
                     opp=_rec_opportunity(draws,p,n,rng)
                     prop=float(np.clip(p.get("rec_td_propensity_multiplier",1.0) or 1.0,0.40,2.50))
-                    cols.append(np.maximum(0.001, opp*prop*REC_POSITION_WEIGHT.get(pos,1.0)))
+                    context=float(np.clip(p.get("context_weight_multiplier",1.0) or 1.0,0.30,1.35))
+                    cols.append(np.maximum(0.001, opp*prop*REC_POSITION_WEIGHT.get(pos,1.0)*context))
                 alloc, other_rec = _allocate_dynamic_multinomial(rng, receiving_tds, np.column_stack(cols), other_share)
                 for local,j in enumerate(rec_idx): rec_alloc[:,j]=alloc[:,local]
             else:
@@ -202,6 +225,34 @@ def simulate_scorers(
                     "rush_td_propensity_multiplier":float(p.get("rush_td_propensity_multiplier",1.0)),
                     "rec_td_propensity_multiplier":float(p.get("rec_td_propensity_multiplier",1.0)),
                     "scorer_games_observed":int(p.get("scorer_games_observed",0) or 0),"scorer_prior_source":p.get("scorer_prior_source"),
+                    "roster_verified_current":bool(p.get("roster_verified_current",False)),
+                    "depth_rank":p.get("depth_rank"),"primary_scorer_eligible":bool(p.get("primary_scorer_eligible",False)),
+                    "espn_fantasy_projected_points":p.get("espn_fantasy_projected_points"),
+                    "espn_fantasy_actual_points":p.get("espn_fantasy_actual_points"),
+                    "fantasy_projection_position_rank":p.get("fantasy_projection_position_rank"),
+                    "yahoo_fantasy_points":p.get("yahoo_fantasy_points"),
+                    "fantasy_role_multiplier":float(p.get("fantasy_role_multiplier",1.0) or 1.0),
+                    "external_consensus_score":p.get("external_consensus_score"),
+                    "external_consensus_multiplier":float(p.get("external_consensus_multiplier",1.0) or 1.0),
+                    "external_consensus_status":p.get("external_consensus_status","MODEL_ONLY_SIGNAL"),
+                    "external_consensus_rejection_flag":bool(p.get("external_consensus_rejection_flag",False)),
+                    "sharp_board_eligible":bool(p.get("sharp_board_eligible",p.get("primary_scorer_eligible",False))),
+                    "fftoday_proj_fpts":p.get("fftoday_proj_fpts"),
+                    "fftoday_proj_scorer_td_lambda":p.get("fftoday_proj_scorer_td_lambda"),
+                    "fftoday_anytime_td_signal":p.get("fftoday_anytime_td_signal"),
+                    "fantasypros_pos_rank":p.get("fantasypros_pos_rank"),
+                    "fantasypros_avg_rank":p.get("fantasypros_avg_rank"),
+                    "fantasypros_rank_stddev":p.get("fantasypros_rank_stddev"),
+                    "pfr_fantasy_points":p.get("pfr_fantasy_points"),
+                    "pfr_ppr_points":p.get("pfr_ppr_points"),
+                    "pfr_pos_rank":p.get("pfr_pos_rank"),
+                    "defense_td_multiplier":float(p.get("defense_td_multiplier",1.0) or 1.0),
+                    "vulnerability_verdict":p.get("vulnerability_verdict","NEUTRAL"),
+                    "td_style":p.get("td_style","NO_TD_HISTORY"),
+                    "td_repeatability_multiplier":float(p.get("td_repeatability_multiplier",0.98) or 0.98),
+                    "qb_goal_line_competition_multiplier":float(p.get("qb_goal_line_competition_multiplier",1.0) or 1.0),
+                    "qb_goal_line_competition_verdict":p.get("qb_goal_line_competition_verdict","QB_NOT_MATERIAL"),
+                    "context_weight_multiplier":float(p.get("context_weight_multiplier",1.0) or 1.0),
                 })
     if any(r["status"]!="OK" for r in recon):
         raise RuntimeError(f"SCORER_RECONCILIATION_FAILED: {recon}")

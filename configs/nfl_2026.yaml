@@ -1,7 +1,7 @@
 project:
   name: AITA NFL Touchdown Scorer Probability + EV Pipeline
   season: 2026
-  model_version: 0.1.0a1
+  model_version: 0.3.0a1
   random_seed: 260901
 
 history:
@@ -70,8 +70,32 @@ uncertainty:
   model_disagreement_penalty: 0.10
   max_edge_haircut_fraction: 0.80
 
+external_fantasy:
+  enabled: true
+  providers: [fftoday, fantasypros, pfr]
+  cache_ttl_hours: 6
+  projection_max_age_hours: 24
+  near_kickoff_window_hours: 24
+  near_kickoff_max_age_hours: 12
+  min_request_interval_seconds: 0.75
+  weights:
+    fftoday: 0.45
+    fantasypros: 0.35
+    pfr: 0.20
+  multiplier_min: 0.90
+  multiplier_max: 1.10
+  disagreement_threshold: 0.30
+  moderate_agreement_threshold: 0.45
+  strong_agreement_threshold: 0.68
+  minimum_sources_for_rejection: 2
+
 providers:
   espn_base: https://site.api.espn.com/apis/site/v2/sports/football/nfl
+  espn_fantasy_base: https://fantasy.espn.com/apis/v3
+  yahoo_fantasy_base: https://fantasysports.yahooapis.com/fantasy/v2
+  fftoday_base: https://www.fftoday.com
+  fantasypros_base: https://www.fantasypros.com
+  pfr_base: https://www.pro-football-reference.com
   nws_base: https://api.weather.gov
   odds_base: https://api.the-odds-api.com/v4
   request_timeout_seconds: 20
@@ -91,3 +115,7 @@ scoring:
   other_touchdown_share: 0.12
   joint_pair_top_n: 30
   joint_triple_top_n: 15
+  primary_board_probability_floor: 0.08
+  primary_matchup_max_players: 12
+  primary_position_max_players: 24
+  primary_slate_max_players: 60

@@ -38,7 +38,14 @@ def _parser() -> argparse.ArgumentParser:
 
 def _audit_zip(path: Path) -> dict:
     required_fragments = [
+        "NFL_SCORER_QB_SLATE_PROBABILITY_BOARD_", "NFL_SCORER_RB_SLATE_PROBABILITY_BOARD_",
+        "NFL_SCORER_WR_SLATE_PROBABILITY_BOARD_", "NFL_SCORER_TE_SLATE_PROBABILITY_BOARD_",
         "NFL_SCORER_MATCHUP_PROBABILITY_BOARD_", "NFL_SCORER_SLATE_PROBABILITY_BOARD_",
+        "NFL_SCORER_CURRENT_ROSTER_VALIDATION_BOARD_", "NFL_SCORER_ESPN_TOP_STATS_BOARD_",
+        "NFL_SCORER_FANTASY_CONTEXT_BOARD_", "NFL_SCORER_FFTODAY_WEEKLY_PROJECTIONS_",
+        "NFL_SCORER_FANTASYPROS_WEEKLY_RANKINGS_", "NFL_SCORER_PFR_CURRENT_FANTASY_ACTUALS_",
+        "NFL_SCORER_EXTERNAL_FANTASY_CONSENSUS_BOARD_", "NFL_SCORER_DEFENSIVE_TD_VULNERABILITY_BOARD_",
+        "NFL_SCORER_PLAYER_TD_STYLE_BOARD_", "NFL_SCORER_QB_GOAL_LINE_COMPETITION_BOARD_",
         "NFL_SCORER_MARKET_SNAPSHOT_", "NFL_SCORER_EV_PLAY_BOARD_", "NFL_SCORER_EDGE_LEADERBOARD_",
         "NFL_SCORER_JOINT_PAIR_BOARD_", "NFL_SCORER_JOINT_TRIPLE_BOARD_", "NFL_SCORER_PARLAY_MATH_CANDIDATE_BOARD_",
         "NFL_SCORER_MATCHUP_EV_PLAY_BOARD_", "NFL_SCORER_SLATE_EV_PLAY_BOARD_", "NFL_SCORER_RUN_MANIFEST_",
@@ -59,8 +66,11 @@ def main(argv=None) -> int:
         scoring = cfg.get("scoring")
         required = ["straight_ev_floor", "market_trust", "other_touchdown_share", "joint_pair_top_n", "joint_triple_top_n"]
         missing = [x for x in required if x not in scoring]
-        status = "OK" if not missing else "FAIL"
-        print(json.dumps({"status": status, "model_version": cfg.get("project", "model_version"), "scoring_missing": missing}, indent=2))
+        external = cfg.get("external_fantasy", default={}) or {}
+        external_required = ["enabled", "weights", "multiplier_min", "multiplier_max", "minimum_sources_for_rejection"]
+        external_missing = [x for x in external_required if x not in external]
+        status = "OK" if not missing and not external_missing else "FAIL"
+        print(json.dumps({"status": status, "model_version": cfg.get("project", "model_version"), "scoring_missing": missing, "external_fantasy_missing": external_missing}, indent=2))
         return 0 if status == "OK" else 1
     if args.command == "demo":
         art = run_scorer_demo(cfg, args.season, args.week, args.draws)

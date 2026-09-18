@@ -27,6 +27,12 @@ from nfl_model.features.qb import build_qb_state
 from nfl_model.features.rb import build_rb_state
 from nfl_model.features.receivers import build_receiver_state
 from nfl_model.features.scoring import build_scorer_state, build_team_td_state, bootstrap_missing_scorer_state
+from nfl_model.features.fantasy_context import build_fantasy_context, attach_fantasy_to_scorer_state
+from nfl_model.features.external_fantasy_consensus import build_external_fantasy_consensus, attach_external_consensus_to_scorer_state
+from nfl_model.features.td_context import (
+    build_touchdown_history, build_defensive_td_vulnerability_state, build_player_td_style_state,
+    build_qb_goal_line_state, attach_scorer_context,
+)
 from nfl_model.ids.teams import canonical_team, team_from_full_name
 from nfl_model.ids.resolver import build_player_map
 from nfl_model.normalize.market import add_novig_probabilities, attach_player_ids
@@ -34,7 +40,12 @@ from nfl_model.package.handoff import boundary_manifest, deterministic_zip, writ
 from nfl_model.portfolio.correlation import correlation_matrix
 from nfl_model.pricing.engine import price_prop_rows, MARKET_TO_STAT
 from nfl_model.providers.espn.client import ESPNClient
-from nfl_model.providers.espn.normalize import normalize_depth_chart, normalize_injuries, normalize_roster, normalize_scoreboard
+from nfl_model.providers.espn.normalize import normalize_depth_chart, normalize_injuries, normalize_roster, normalize_scoreboard, normalize_team_leaders
+from nfl_model.providers.espn_fantasy import ESPNFantasyClient, normalize_fantasy_players
+from nfl_model.providers.yahoo_fantasy import YahooFantasyClient, normalize_yahoo_players
+from nfl_model.providers.fftoday import FFTodayClient, normalize_fftoday_weekly
+from nfl_model.providers.fantasypros import FantasyProsClient, normalize_fantasypros_weekly
+from nfl_model.providers.pfr import PFRFantasyClient, normalize_pfr_fantasy
 from nfl_model.providers.nflverse.client import NFLVerseClient
 from nfl_model.providers.nws.client import NWSClient
 from nfl_model.providers.odds_api.client import OddsAPIClient
@@ -168,7 +179,7 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
     )
     health["espn_scoreboard"] = "OK"
 
-    roster_frames, depth_frames = [], []
+    roster_frames, depth_frames, leader_frames = [], [], []
 
     team_pairs: dict[str, str] = {}
 
@@ -272,6 +283,16 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
                 f"{type(exc).__name__}"
             )
 
+        try:
+            lj = espn.get_team_leaders(team_id)
+            save_json_snapshot(raw_dir, "espn", season, week, f"leaders_{team}", lj)
+            lf = normalize_team_leaders(lj, team)
+            if not lf.empty:
+                leader_frames.append(lf)
+            health[f"espn_{team}_leaders"] = "OK"
+        except Exception as exc:
+            health[f"espn_{team}_leaders"] = f"DEGRADED:{type(exc).__name__}"
+
     # --------------------------------------------------------
     # CURRENT INJURIES
     #
@@ -358,6 +379,8 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
             ]
         )
     )
+
+    espn_team_leaders = pd.concat(leader_frames, ignore_index=True, sort=False) if leader_frames else pd.DataFrame()
 
     if (
         injuries.empty
@@ -453,48 +476,229 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
     player_map = _augment_player_map(qb_state, rb_state, rec_state, season, week)
     player_map = _merge_espn_ids(player_map, rosters)
     player_map = enrich_player_map_with_current_context(player_map, rosters, depths, injuries)
+
+    # ESPN season-to-date team leaders: current usage/production corroboration.
+    if not espn_team_leaders.empty and not player_map.empty:
+        leaders = espn_team_leaders.copy()
+        leaders["espn_athlete_id"] = leaders["espn_athlete_id"].astype(str)
+        pos_map = player_map.dropna(subset=["espn_athlete_id"]).drop_duplicates("espn_athlete_id").set_index("espn_athlete_id")["position"].to_dict()
+        leaders["position"] = leaders["espn_athlete_id"].map(pos_map)
+        leaders = leaders[leaders["position"].isin(["QB", "RB", "WR", "TE"])].copy()
+        espn_team_leaders = leaders.copy()
+        leaders["rank"] = pd.to_numeric(leaders["rank"], errors="coerce")
+        leader_rank = leaders.groupby("espn_athlete_id")["rank"].min().to_dict()
+        leader_categories = leaders.groupby("espn_athlete_id")["category"].agg(lambda x: "|".join(sorted({str(v) for v in x if pd.notna(v)}))).to_dict()
+        player_map["espn_team_leader_best_rank"] = player_map["espn_athlete_id"].astype(str).map(leader_rank)
+        player_map["espn_team_leader_categories"] = player_map["espn_athlete_id"].astype(str).map(leader_categories)
+        leader_mask = pd.to_numeric(player_map["espn_team_leader_best_rank"], errors="coerce").le(3)
+        player_map.loc[leader_mask.fillna(False), "role_certainty_score"] = np.minimum(
+            98.0, pd.to_numeric(player_map.loc[leader_mask.fillna(False), "role_certainty_score"], errors="coerce").fillna(50.0) + 3.0
+        )
+    else:
+        player_map["espn_team_leader_best_rank"] = np.nan
+        player_map["espn_team_leader_categories"] = None
+
     degraded_current_state_teams = {
         team
         for team in team_pairs
         if any(
-            str(
-                health.get(
-                    f"espn_{team}_{component}",
-                    "OK",
-                )
-            ).startswith("DEGRADED")
-            for component in (
-                "roster",
-                "depthchart",
-            )
+            str(health.get(f"espn_{team}_{component}", "OK")).startswith("DEGRADED")
+            for component in ("roster", "depthchart")
         )
     }
-
-    # A failed league-wide injury snapshot is critical for
-    # all player-prop teams because availability cannot be
-    # verified.
-    if str(
-        health.get(
-            "espn_injuries",
-            "OK",
-        )
-    ).startswith("DEGRADED"):
-
-        degraded_current_state_teams.update(
-            team_pairs.keys()
-        )
+    if str(health.get("espn_injuries", "OK")).startswith("DEGRADED"):
+        degraded_current_state_teams.update(team_pairs.keys())
     if not player_map.empty:
         player_map["critical_current_state_ok"] = ~player_map["current_team"].isin(degraded_current_state_teams)
         player_map.loc[~player_map["critical_current_state_ok"], "data_freshness_score"] = 0.0
+        # Fail closed if roster/depth/injury identity cannot be verified for the team.
+        player_map["available_for_simulation"] = player_map["available_for_simulation"].fillna(False).astype(bool) & player_map["critical_current_state_ok"].astype(bool)
+        player_map["primary_scorer_eligible"] = player_map["primary_scorer_eligible"].fillna(False).astype(bool) & player_map["critical_current_state_ok"].astype(bool)
+
+    # --------------------------------------------------------
+    # ESPN + YAHOO FANTASY CONTEXT
+    # Fantasy projections/points are corroborating role inputs only; they never replace
+    # current roster identity or the market-blind TD simulation.
+    # --------------------------------------------------------
+    espn_fantasy = pd.DataFrame()
+    try:
+        ef = ESPNFantasyClient(
+            cfg.get("providers", "espn_fantasy_base", default="https://fantasy.espn.com/apis/v3"),
+            timeout=int(cfg.get("providers", "request_timeout_seconds", default=20)),
+        )
+        ef_raw = ef.get_players(season, week)
+        save_json_snapshot(raw_dir, "espn_fantasy", season, week, "players", ef_raw)
+        espn_fantasy = normalize_fantasy_players(ef_raw, team_id_to_abbr, week)
+        health["espn_fantasy"] = "OK" if not espn_fantasy.empty else "DEGRADED:EMPTY"
+    except Exception as exc:
+        health["espn_fantasy"] = f"DEGRADED:{type(exc).__name__}"
+
+    yahoo_fantasy = pd.DataFrame()
+    yahoo_token = os.getenv("YAHOO_FANTASY_ACCESS_TOKEN", "").strip()
+    yahoo_league = os.getenv("YAHOO_FANTASY_LEAGUE_KEY", "").strip()
+    if yahoo_token and yahoo_league:
+        try:
+            yf = YahooFantasyClient(
+                cfg.get("providers", "yahoo_fantasy_base", default="https://fantasysports.yahooapis.com/fantasy/v2"),
+                yahoo_token,
+                timeout=int(cfg.get("providers", "request_timeout_seconds", default=20)),
+            )
+            yf_raw = yf.get_league_players(yahoo_league, week)
+            save_json_snapshot(raw_dir, "yahoo_fantasy", season, week, "players", {"pages": yf_raw})
+            yahoo_fantasy = normalize_yahoo_players(yf_raw)
+            health["yahoo_fantasy"] = "OK" if not yahoo_fantasy.empty else "DEGRADED:EMPTY"
+        except Exception as exc:
+            health["yahoo_fantasy"] = f"DEGRADED:{type(exc).__name__}"
+    else:
+        health["yahoo_fantasy"] = "SKIPPED_NO_OAUTH_OR_LEAGUE_KEY"
+
+    player_map, fantasy_context = build_fantasy_context(player_map, espn_fantasy, yahoo_fantasy)
+
+    # --------------------------------------------------------
+    # PUBLIC THIRD-PARTY FANTASY / PROJECTION CHALLENGER LAYER
+    # FFToday = weekly projection model, FantasyPros = expert consensus,
+    # PFR = realized current-season production. These are public-page, fail-soft
+    # corroboration inputs only. No login/paywall/CAPTCHA bypass is attempted.
+    # --------------------------------------------------------
+    fftoday = pd.DataFrame()
+    fantasypros = pd.DataFrame()
+    pfr_fantasy = pd.DataFrame()
+    external_fantasy_context = pd.DataFrame()
+    ext_cfg = cfg.get("external_fantasy", default={}) or {}
+    ext_enabled = bool(ext_cfg.get("enabled", True))
+    providers_enabled = {str(x).lower() for x in ext_cfg.get("providers", ["fftoday", "fantasypros", "pfr"])}
+    cache_ttl = float(ext_cfg.get("cache_ttl_hours", 6.0))
+    default_max_age = float(ext_cfg.get("projection_max_age_hours", 24.0))
+    near_window = float(ext_cfg.get("near_kickoff_window_hours", 24.0))
+    near_max_age = float(ext_cfg.get("near_kickoff_max_age_hours", 12.0))
+    min_interval = float(ext_cfg.get("min_request_interval_seconds", 0.75))
+    max_age = default_max_age
+    try:
+        kick = pd.to_datetime(slate["kickoff_utc"], utc=True, errors="coerce").dropna()
+        if not kick.empty:
+            hours = (kick - pd.Timestamp.now(tz="UTC")).dt.total_seconds() / 3600.0
+            future = hours[hours >= -1.0]
+            if not future.empty and float(future.min()) <= near_window:
+                max_age = min(default_max_age, near_max_age)
+    except Exception:
+        max_age = default_max_age
+    public_ua = os.getenv("PUBLIC_FANTASY_USER_AGENT", "").strip() or os.getenv("NWS_USER_AGENT", "").strip() or f"AITA-NFL-SCORER/{__version__} (public-data research client)"
+    pub_cache = cfg.root / cfg.get("storage", "cache_dir") / "public_fantasy"
+    raw_public = raw_dir / "public_fantasy" / str(season) / f"week_{week:02d}"
+    raw_public.mkdir(parents=True, exist_ok=True)
+
+    if ext_enabled and "fftoday" in providers_enabled:
+        frames = []
+        try:
+            client = FFTodayClient(
+                cfg.get("providers", "fftoday_base", default="https://www.fftoday.com"),
+                pub_cache / "fftoday", public_ua,
+                timeout=int(cfg.get("providers", "request_timeout_seconds", default=20)),
+                cache_ttl_hours=cache_ttl, min_request_interval_seconds=min_interval,
+            )
+            for pos in ["QB", "RB", "WR", "TE"]:
+                try:
+                    resp = client.weekly_projection(season, week, pos, max_age_hours=max_age)
+                    (raw_public / f"fftoday_{pos}.html").write_text(resp.text, encoding="utf-8")
+                    f = normalize_fftoday_weekly(resp.text, pos, resp.fetched_at_utc, resp.url)
+                    if not f.empty:
+                        frames.append(f)
+                    health[f"fftoday_{pos.lower()}"] = f"OK:{len(f)}" if not f.empty else "DEGRADED:EMPTY"
+                except Exception as exc:
+                    health[f"fftoday_{pos.lower()}"] = f"DEGRADED:{type(exc).__name__}"
+            fftoday = pd.concat(frames, ignore_index=True, sort=False) if frames else pd.DataFrame()
+            health["fftoday"] = f"OK:{len(fftoday)}" if not fftoday.empty else "DEGRADED:EMPTY_OR_BLOCKED"
+        except Exception as exc:
+            health["fftoday"] = f"DEGRADED:{type(exc).__name__}"
+    else:
+        health["fftoday"] = "SKIPPED_DISABLED"
+
+    if ext_enabled and "fantasypros" in providers_enabled:
+        frames = []
+        try:
+            client = FantasyProsClient(
+                cfg.get("providers", "fantasypros_base", default="https://www.fantasypros.com"),
+                pub_cache / "fantasypros", public_ua,
+                timeout=int(cfg.get("providers", "request_timeout_seconds", default=20)),
+                cache_ttl_hours=cache_ttl, min_request_interval_seconds=min_interval,
+            )
+            for pos in ["QB", "RB", "WR", "TE"]:
+                try:
+                    resp = client.weekly_rankings(week, pos, max_age_hours=max_age)
+                    (raw_public / f"fantasypros_{pos}.html").write_text(resp.text, encoding="utf-8")
+                    f = normalize_fantasypros_weekly(resp.text, pos, week, resp.fetched_at_utc, resp.url)
+                    if not f.empty:
+                        frames.append(f)
+                    health[f"fantasypros_{pos.lower()}"] = f"OK:{len(f)}" if not f.empty else "DEGRADED:EMPTY"
+                except Exception as exc:
+                    health[f"fantasypros_{pos.lower()}"] = f"DEGRADED:{type(exc).__name__}"
+            fantasypros = pd.concat(frames, ignore_index=True, sort=False) if frames else pd.DataFrame()
+            health["fantasypros"] = f"OK:{len(fantasypros)}" if not fantasypros.empty else "DEGRADED:EMPTY_OR_BLOCKED"
+        except Exception as exc:
+            health["fantasypros"] = f"DEGRADED:{type(exc).__name__}"
+    else:
+        health["fantasypros"] = "SKIPPED_DISABLED"
+
+    if ext_enabled and "pfr" in providers_enabled:
+        try:
+            client = PFRFantasyClient(
+                cfg.get("providers", "pfr_base", default="https://www.pro-football-reference.com"),
+                pub_cache / "pfr", public_ua,
+                timeout=int(cfg.get("providers", "request_timeout_seconds", default=20)),
+                cache_ttl_hours=cache_ttl, min_request_interval_seconds=min_interval,
+            )
+            resp = client.season_fantasy(season, max_age_hours=max_age)
+            (raw_public / "pfr_fantasy.html").write_text(resp.text, encoding="utf-8")
+            pfr_fantasy = normalize_pfr_fantasy(resp.text, season, resp.fetched_at_utc, resp.url)
+            health["pfr_fantasy"] = f"OK:{len(pfr_fantasy)}" if not pfr_fantasy.empty else "DEGRADED:EMPTY"
+        except Exception as exc:
+            health["pfr_fantasy"] = f"DEGRADED:{type(exc).__name__}"
+    else:
+        health["pfr_fantasy"] = "SKIPPED_DISABLED"
+
+    if ext_enabled:
+        weights = ext_cfg.get("weights", {}) or {}
+        player_map, external_fantasy_context = build_external_fantasy_consensus(
+            player_map, fftoday, fantasypros, pfr_fantasy,
+            fftoday_weight=float(weights.get("fftoday", 0.45)),
+            fantasypros_weight=float(weights.get("fantasypros", 0.35)),
+            pfr_weight=float(weights.get("pfr", 0.20)),
+            multiplier_min=float(ext_cfg.get("multiplier_min", 0.90)),
+            multiplier_max=float(ext_cfg.get("multiplier_max", 1.10)),
+            disagreement_threshold=float(ext_cfg.get("disagreement_threshold", 0.30)),
+            moderate_threshold=float(ext_cfg.get("moderate_agreement_threshold", 0.45)),
+            strong_threshold=float(ext_cfg.get("strong_agreement_threshold", 0.68)),
+            minimum_sources_for_rejection=int(ext_cfg.get("minimum_sources_for_rejection", 2)),
+        )
+    else:
+        player_map["external_consensus_multiplier"] = 1.0
+        player_map["external_consensus_status"] = "SKIPPED_DISABLED"
+        player_map["external_consensus_rejection_flag"] = False
+        player_map["sharp_board_eligible"] = player_map.get("primary_scorer_eligible", False).fillna(False).astype(bool)
+
     pm_errors = validate_player_map(player_map)
     if pm_errors:
         raise RuntimeError(f"PLAYER_GATE_FAILED: {pm_errors}")
+
     qb_state = _player_states_with_ids(qb_state, player_map)
     rb_state = _player_states_with_ids(rb_state, player_map)
     rec_state = _player_states_with_ids(rec_state, player_map)
     scorer_state = _player_states_with_ids(scorer_state, player_map)
     qb_state, rb_state, rec_state = bootstrap_missing_role_states(player_map, qb_state, rb_state, rec_state)
     scorer_state = bootstrap_missing_scorer_state(player_map, scorer_state)
+    scorer_state = attach_fantasy_to_scorer_state(scorer_state, player_map)
+    scorer_state = attach_external_consensus_to_scorer_state(scorer_state, player_map)
+
+    # --------------------------------------------------------
+    # TD SCORING MICROSTRUCTURE
+    # Defensive red-zone vulnerability, player TD origin/style, and QB goal-line cannibalization.
+    # --------------------------------------------------------
+    td_history = build_touchdown_history(pbp, player_stats)
+    defense_td_state = build_defensive_td_vulnerability_state(td_history, pbp)
+    td_style_state = build_player_td_style_state(td_history)
+    qb_goal_line_state = build_qb_goal_line_state(pbp, player_stats)
+    scorer_state = attach_scorer_context(scorer_state, slate, defense_td_state, td_style_state, qb_goal_line_state)
+
     coaching_state = build_coaching_state(team_state)
     matchup_state = build_matchup_state(slate, team_state)
 
@@ -504,6 +708,18 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
     rec_state.to_csv(normalized_dir / "receiver_state.csv", index=False)
     scorer_state.to_csv(normalized_dir / "scorer_state.csv", index=False)
     team_td_state.to_csv(normalized_dir / "team_td_state.csv", index=False)
+    espn_team_leaders.to_csv(normalized_dir / "espn_team_leaders.csv", index=False)
+    espn_fantasy.to_csv(normalized_dir / "espn_fantasy_context.csv", index=False)
+    yahoo_fantasy.to_csv(normalized_dir / "yahoo_fantasy_context.csv", index=False)
+    fftoday.to_csv(normalized_dir / "fftoday_weekly_projections.csv", index=False)
+    fantasypros.to_csv(normalized_dir / "fantasypros_weekly_rankings.csv", index=False)
+    pfr_fantasy.to_csv(normalized_dir / "pfr_current_fantasy_actuals.csv", index=False)
+    fantasy_context.to_csv(normalized_dir / "fantasy_context_board.csv", index=False)
+    external_fantasy_context.to_csv(normalized_dir / "external_fantasy_consensus_board.csv", index=False)
+    td_history.to_csv(normalized_dir / "td_history_events.csv", index=False)
+    defense_td_state.to_csv(normalized_dir / "defense_td_vulnerability_state.csv", index=False)
+    td_style_state.to_csv(normalized_dir / "player_td_style_state.csv", index=False)
+    qb_goal_line_state.to_csv(normalized_dir / "qb_goal_line_state.csv", index=False)
     coaching_state.to_csv(normalized_dir / "coaching_state.csv", index=False)
     matchup_state.to_csv(normalized_dir / "matchup_state.csv", index=False)
     player_map.to_csv(normalized_dir / "entity_map_player.csv", index=False)
@@ -541,6 +757,9 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
     return {
         "slate": slate, "rosters": rosters, "depths": depths, "injuries": injuries, "transactions": transactions,
         "team_state": team_state, "qb_state": qb_state, "rb_state": rb_state, "rec_state": rec_state, "scorer_state": scorer_state, "team_td_state": team_td_state,
+        "espn_team_leaders": espn_team_leaders, "espn_fantasy": espn_fantasy, "yahoo_fantasy": yahoo_fantasy, "fantasy_context": fantasy_context,
+        "fftoday": fftoday, "fantasypros": fantasypros, "pfr_fantasy": pfr_fantasy, "external_fantasy_context": external_fantasy_context,
+        "td_history": td_history, "defense_td_state": defense_td_state, "td_style_state": td_style_state, "qb_goal_line_state": qb_goal_line_state,
         "coaching_state": coaching_state, "matchup_state": matchup_state,
         "player_map": player_map, "weather": weather, "provider_health": health,
         "normalized_dir": normalized_dir, "scoreboard_snapshot": snap,
@@ -1069,11 +1288,30 @@ def _subset_state_for_slate(state: dict[str, Any], selected_aita_event_ids: list
         "coaching_state": "team",
         "matchup_state": "team",
         "player_map": "current_team",
+        "espn_team_leaders": "team",
+        "espn_fantasy": "team",
+        "yahoo_fantasy": "team",
+        "fftoday": "team",
+        "fantasypros": "team",
+        "pfr_fantasy": "team",
+        "fantasy_context": "current_team",
+        "external_fantasy_context": "current_team",
+        "qb_goal_line_state": "team",
     }
     for key, col in team_tables.items():
         df = out.get(key)
         if isinstance(df, pd.DataFrame) and not df.empty and col in df.columns:
             out[key] = df[df[col].astype(str).isin(teams)].copy().reset_index(drop=True)
+
+    defense_state = out.get("defense_td_state")
+    if isinstance(defense_state, pd.DataFrame) and not defense_state.empty and "defense" in defense_state.columns:
+        out["defense_td_state"] = defense_state[defense_state["defense"].astype(str).isin(teams)].copy().reset_index(drop=True)
+
+    td_style = out.get("td_style_state")
+    pm_sub = out.get("player_map")
+    if isinstance(td_style, pd.DataFrame) and not td_style.empty and "gsis_id" in td_style.columns and isinstance(pm_sub, pd.DataFrame) and "gsis_id" in pm_sub.columns:
+        ids = set(pm_sub["gsis_id"].dropna().astype(str))
+        out["td_style_state"] = td_style[td_style["gsis_id"].astype(str).isin(ids)].copy().reset_index(drop=True)
 
     weather = out.get("weather")
     if isinstance(weather, pd.DataFrame) and not weather.empty and "aita_event_id" in weather.columns:

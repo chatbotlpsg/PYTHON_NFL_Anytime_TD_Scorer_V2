@@ -82,6 +82,25 @@ def price_anytime_td_rows(
         if hasattr(meta, "get") and not bool(meta.get("critical_current_state_ok", True)):
             out_rows.append({**r, "model_status": "REJECTED", "rejection_reason": "DATA_QUALITY"})
             continue
+        if hasattr(meta, "get") and not bool(meta.get("roster_verified_current", False)):
+            out_rows.append({**r, "model_status": "REJECTED", "rejection_reason": "NOT_ON_CURRENT_ESPN_ROSTER"})
+            continue
+        if hasattr(meta, "get") and not bool(meta.get("available_for_simulation", False)):
+            out_rows.append({**r, "model_status": "REJECTED", "rejection_reason": "CURRENT_AVAILABILITY_BLOCK"})
+            continue
+        if hasattr(meta, "get") and not bool(meta.get("primary_scorer_eligible", False)):
+            out_rows.append({**r, "model_status": "REJECTED", "rejection_reason": "LOW_ROLE_LOTTERY_POOL"})
+            continue
+        if hasattr(meta, "get") and not bool(meta.get("sharp_board_eligible", True)):
+            out_rows.append({
+                **r,
+                "model_status": "REJECTED",
+                "rejection_reason": "EXTERNAL_CONSENSUS_DISAGREEMENT",
+                "external_consensus_status": meta.get("external_consensus_status"),
+                "external_consensus_score": meta.get("external_consensus_score"),
+                "external_source_count": meta.get("external_source_count"),
+            })
+            continue
         age = _age_minutes(row.get("market_last_update") or row.get("book_last_update"))
         if age is not None and age > max_market_age_minutes:
             out_rows.append({**r, "market_age_minutes": age, "model_status": "REJECTED", "rejection_reason": "STALE_ODDS"})
@@ -140,6 +159,14 @@ def price_anytime_td_rows(
             "data_freshness_score": fresh,
             "model_agreement_score": agreement,
             "confidence_score": confidence,
+            "external_consensus_status": meta.get("external_consensus_status") if hasattr(meta, "get") else None,
+            "external_consensus_score": meta.get("external_consensus_score") if hasattr(meta, "get") else None,
+            "external_source_count": meta.get("external_source_count") if hasattr(meta, "get") else None,
+            "external_consensus_multiplier": meta.get("external_consensus_multiplier") if hasattr(meta, "get") else None,
+            "fftoday_anytime_td_signal": meta.get("fftoday_anytime_td_signal") if hasattr(meta, "get") else None,
+            "fantasypros_pos_rank": meta.get("fantasypros_pos_rank") if hasattr(meta, "get") else None,
+            "pfr_pos_rank": meta.get("pfr_pos_rank") if hasattr(meta, "get") else None,
+            "sharp_board_eligible": meta.get("sharp_board_eligible") if hasattr(meta, "get") else True,
             "probability_edge_vs_break_even_pp": (p_cons - float(row["market_raw_implied_prob"])) * 100.0,
             "model_market_disagreement_pp": disagreement * 100.0,
             "convergence_status": conv,

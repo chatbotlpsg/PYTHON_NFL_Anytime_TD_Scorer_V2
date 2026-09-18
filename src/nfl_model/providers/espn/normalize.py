@@ -297,3 +297,33 @@ def normalize_injuries(
         rows,
         columns=columns,
     )
+
+
+def normalize_team_leaders(payload: dict, team: str) -> pd.DataFrame:
+    """Normalize ESPN team statistical leaders into an audit-friendly long table."""
+    rows: list[dict[str, Any]] = []
+    groups = payload.get("leaders") or payload.get("categories") or []
+    if isinstance(groups, dict):
+        groups = list(groups.values())
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        category = group.get("name") or group.get("displayName") or group.get("shortDisplayName")
+        leaders = group.get("leaders") or group.get("athletes") or []
+        for ordinal, item in enumerate(leaders, start=1):
+            if not isinstance(item, dict):
+                continue
+            athlete = item.get("athlete") or item
+            value = item.get("value", item.get("statistics", item.get("displayValue")))
+            if isinstance(value, dict):
+                value = value.get("value", value.get("displayValue"))
+            rows.append({
+                "team": canonical_team(team),
+                "category": category,
+                "rank": item.get("rank", ordinal),
+                "espn_athlete_id": str(athlete.get("id", "")),
+                "player_name": athlete.get("displayName") or athlete.get("fullName"),
+                "value": value,
+                "display_value": item.get("displayValue"),
+            })
+    return pd.DataFrame(rows)

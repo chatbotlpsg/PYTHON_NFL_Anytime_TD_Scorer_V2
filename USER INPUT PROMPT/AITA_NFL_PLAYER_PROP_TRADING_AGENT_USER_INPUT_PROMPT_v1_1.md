@@ -1,4 +1,4 @@
-# AITA NFL Player Prop Trading Agent — User Input Prompt v1.0
+# AITA NFL Player Prop Trading Agent — User Input Prompt v1.1
 
 Use this prompt whenever an **AITA NFL Player Prop Trading Agent handoff ZIP** is attached.
 
@@ -975,4 +975,133 @@ Preserve this run for later comparison against:
 - final pre-kickoff snapshot
 - closing line
 - actual result
+```
+
+---
+
+# v1.1 MANDATORY MODULE — ANYTIME TD SCORER OUTPUT
+
+**Added in v1.1. These two boards are REQUIRED, UNPROMPTED, ON THE FIRST OUTPUT of every run that includes an `NFL_SCORER_TRADING_AGENT_HANDOFF_*.zip`. Never wait to be asked for them. Never omit them. Never render a shortened version.**
+
+Print them in this order, after the handoff check and before the EV+ boards:
+
+```text
+BOARD S1 — MOST PROBABLE SCORERS BY MATCHUP (one position per team)
+BOARD S2 — SHARP PARLAY CARD (disjoint legs)
+```
+
+---
+
+## BOARD S1 — MOST PROBABLE SCORERS BY MATCHUP
+
+One board per game. Header line must carry game, venue, kickoff in UTC and ET, and AITA event ID.
+
+### Row-selection rule (STRICT — no exceptions)
+
+For each game, print **exactly one player per position per team**: one QB, one RB, one WR, one TE for the away team and the same four for the home team. Maximum 8 rows per game.
+
+Selection within each team-position cell:
+1. Highest `p_anytime_td_raw`, restricted to `depth_rank = 1`.
+2. **Exclude any player running on an imputed/default workload prior** (`scorer_games_observed = 0`, or workload fields equal to the default placeholder set). If the top-probability player at a position is imputed, take the next player with observed workload and say in a footnote who was skipped and why.
+3. Exclude players with `role_certainty_score < 60`, quarantined entities, players with no scorer draws, and anyone not `ACTIVE_OR_UNLISTED`.
+
+**Do not put backups, rotational/workload-share players, or lotto longshots on this board.** They belong on the position workload boards and the EV+ board only. No duplicate player anywhere on S1. No duplicate team-position cell.
+
+### Required columns
+
+```text
+Rk | Player (full name) | Team (full club name) | Pos | Depth | Model ATD | 2+ TD | 3+ TD |
+Rush TD | Rec TD | Exp TD | Model Fair | Model Confidence | Matchup Strength |
+Role Cert. | Availability | Freshness | TD Style | Def Verdict
+```
+
+- **Player** is always the full name. **Team** is always the full club name in the team column, e.g. Detroit Lions, not DET.
+- **Model Confidence** is `confidence_score` from the handoff. If absent for a row, write `CONFIDENCE DATA GAP`.
+- **Matchup Strength** is derived from the opponent's position-specific `defense_td_multiplier` plus `vulnerability_verdict`, printed as the multiplier and a label:
+
+```text
+>= 1.10          STRONG
+1.03 to 1.099    LEAN POSITIVE
+0.97 to 1.029    NEUTRAL
+0.90 to 0.969    SLIGHTLY SOFT
+< 0.90           ADVERSE
+```
+
+A `BAD_MATCHUP` verdict forces ADVERSE regardless of the multiplier.
+
+### Required board notes under every S1 board
+
+```text
+Highest-probability scorer in the matchup and the gap to second
+Team touchdown means from the reconciliation file plus reconciliation status
+Any row whose frozen availability disagrees with current injury reporting
+Players skipped by the imputed-prior rule, named
+Quarantined entities and players priced without scorer draws
+A one-line reminder that S1 is probability-only and market-blind
+```
+
+S1 is never a bet recommendation board. Never convert an S1 rank into best-bet language.
+
+---
+
+## BOARD S2 — SHARP PARLAY CARD (disjoint legs)
+
+Required lead-in text, verbatim:
+
+```text
+Every probability below is the empirical shared-Monte-Carlo joint from the frozen boards,
+not a multiplication. Min Payout is the sportsbook quote required for the raw joint to
+clear the handoff's parlay EV floor (1.08 / p_joint at an 8% floor). It is a threshold
+derived from Dataset A, not an offer.
+```
+
+If `minimum_required_parlay_ev_pct` differs from 8 in the handoff, use the handoff value and restate the divisor.
+
+### Required columns
+
+```text
+Ticket | Legs | Indiv. p | Joint p | Indep. Product | Lift (pp) | phi | Model Fair |
+Min Payout @ floor | Quote | Decision
+```
+
+Every leg in the Legs cell must read `Full Player Name (Full Team Name)`, e.g. `Jahmyr Gibbs (Detroit Lions) + James Cook (Buffalo Bills)`.
+
+### Disjoint-leg rule (STRICT)
+
+```text
+Each player may appear ONCE across the ENTIRE card — straights and parlays combined.
+No leg is reused between tickets.
+No two positions may ride the same thesis (same backfield, same goal-line role,
+same vacated-usage story), even when the players differ.
+Quarantined, imputed-prior, unpriced, and questionable-availability players are ineligible as legs.
+```
+
+Ticket construction order:
+1. Build tickets from legs with observed workload and the highest empirical joint probability.
+2. Prefer near-zero or positive `joint_probability_lift_pp` over negatively correlated combinations.
+3. Label any ticket containing a soft-data leg as a flyer and say which leg is soft.
+4. Offer the 3-leg alternative separately, stating which tickets it replaces and which legs it frees.
+
+### Required closing text under S2
+
+```text
+Leg-usage ledger listing every player and their assigned ticket or straight, with full team names,
+then the count of distinct players and an explicit "zero repeats" confirmation.
+A cross-team construction note.
+Every ticket carries Quote = PRICE REQUIRED and Decision = NOT YET TRADEABLE until an
+executable sportsbook parlay/SGP payout is supplied. Never fabricate a quote.
+```
+
+---
+
+## v1.1 HARD RULES
+
+```text
+S1 and S2 render on the first response of every scorer run, without being asked.
+Full player names and full team names in every board, always.
+S1 shows one position per team only, starters with observed workload, no duplicates, no backups, no lotto rows.
+S2 enforces one use per player across the whole card.
+Model Confidence and Matchup Strength are mandatory S1 columns.
+Frozen Dataset-A probabilities are never altered.
+No fabricated prices, quotes, closes, injuries, or results. Use DATA GAP, PRICE REQUIRED, NOT YET TRADEABLE.
 ```

@@ -108,4 +108,5 @@ def test_blank_injury_id_does_not_attach_to_blank_player_id():
     )
 
     assert out.iloc[0]["availability_status"] == "ACTIVE_OR_UNLISTED"
-    assert bool(out.iloc[0]["available_for_simulation"]) is True
+    assert bool(out.iloc[0]["available_for_simulation"]) is False
+    assert out.iloc[0]["roster_gate_reason"] == "NO_CURRENT_ROSTER_SNAPSHOT"

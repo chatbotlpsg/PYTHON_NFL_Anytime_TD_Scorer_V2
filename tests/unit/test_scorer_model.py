@@ -24,7 +24,7 @@ def _fixture(n=20000):
         {'aita_player_id':'WR1','player_name':'WR','team':team,'position':'WR','rush_opportunities_ewm':.2,'receiving_opportunities_ewm':9,'rush_td_propensity_multiplier':.7,'rec_td_propensity_multiplier':1.2,'historical_td_per_game':.55,'scorer_games_observed':20,'scorer_prior_source':'T'},
         {'aita_player_id':'TE1','player_name':'TE','team':team,'position':'TE','rush_opportunities_ewm':.1,'receiving_opportunities_ewm':6,'rush_td_propensity_multiplier':.5,'rec_td_propensity_multiplier':1.1,'historical_td_per_game':.38,'scorer_games_observed':20,'scorer_prior_source':'T'},
     ])
-    pm=pd.DataFrame([{'aita_player_id':x,'role_certainty_score':90,'available_for_simulation':True} for x in ['QB1','RB1','WR1','TE1']])
+    pm=pd.DataFrame([{'aita_player_id':x,'role_certainty_score':90,'available_for_simulation':True,'primary_scorer_eligible':True,'roster_verified_current':True} for x in ['QB1','RB1','WR1','TE1']])
     slate=pd.DataFrame([{'aita_event_id':eid,'home_team':team,'away_team':'BUF'}])
     mix=pd.DataFrame([{'team':team,'historical_rush_td_share':.38}])
     return slate,draws,scorer,pm,mix
@@ -46,7 +46,7 @@ def test_anytime_td_pricing_uses_ev_gate():
     slate,draws,scorer,pm,mix=_fixture()
     out,summary,recon=simulate_scorers(slate,draws,scorer,pm,123,team_td_state=mix,other_share=.12)
     # Match player-map shape required by the pricing layer.
-    pm2=pm.copy(); pm2['data_freshness_score']=100.; pm2['critical_current_state_ok']=True
+    pm2=pm.copy(); pm2['data_freshness_score']=100.; pm2['critical_current_state_ok']=True; pm2['roster_verified_current']=True; pm2['primary_scorer_eligible']=True
     p=float(np.mean(out['SCORER|RB1|anytime']))
     # Give a deliberately generous price relative to the model probability.
     odds=pd.DataFrame([{'aita_event_id':'E1','aita_player_id':'RB1','bookmaker':'book','market_key':'player_anytime_td','side':'YES','line':.5,'american_odds':250,'market_raw_implied_prob':1/3.5,'entity_status':'RESOLVED'}])
