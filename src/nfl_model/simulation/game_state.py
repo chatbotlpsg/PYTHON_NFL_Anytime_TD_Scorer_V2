@@ -33,7 +33,17 @@ def _baseline_means(home_state: dict, away_state: dict) -> tuple[float, float]:
     a_succ_d = _safe(away_state.get("success_rate_allowed"), .43)
     home_match = (h_off - a_def) * 8.5 + (h_succ - a_succ_d) * 11.0 + 1.25
     away_match = (a_off - h_def) * 8.5 + (a_succ - h_succ_d) * 11.0
-    return float(np.clip(22.4 + home_match, 13.0, 34.5)), float(np.clip(22.1 + away_match, 13.0, 34.5))
+    home_mean = float(np.clip(22.4 + home_match, 13.0, 34.5))
+    away_mean = float(np.clip(22.1 + away_match, 13.0, 34.5))
+
+    # Current-season pregame scoring form is deliberately bounded. It prevents a superstar
+    # on a bottom-tier offense from inheriting an unrealistically neutral scoring environment,
+    # while the later market anchor can still pull the score prior toward current information.
+    h_form = float(np.clip(_safe(home_state.get("current_season_offense_multiplier"), 1.0), 0.84, 1.12))
+    a_form = float(np.clip(_safe(away_state.get("current_season_offense_multiplier"), 1.0), 0.84, 1.12))
+    home_mean = float(np.clip(home_mean * h_form, 11.5, 36.0))
+    away_mean = float(np.clip(away_mean * a_form, 11.5, 36.0))
+    return home_mean, away_mean
 
 
 def _anchored_score_means(home_mean: float, away_mean: float, anchor: dict[str, float], market_weight: float) -> tuple[float, float, float | None, float | None, float]:

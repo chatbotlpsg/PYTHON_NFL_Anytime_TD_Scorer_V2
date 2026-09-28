@@ -167,8 +167,14 @@ def build_external_fantasy_consensus(
         base["external_source_count"].ge(int(minimum_sources_for_rejection))
         & base["external_consensus_status"].eq("EXTERNAL_DISAGREEMENT")
     )
-    # This gate is intentionally for sharp/EV promotion only. Probability audit rows remain visible.
-    base["sharp_board_eligible"] = base.get("primary_scorer_eligible", False).fillna(False).astype(bool) & ~base["external_consensus_rejection_flag"]
+    # Sharp/EV promotion requires starter eligibility, current-season scoring context eligibility,
+    # and no multi-source external disagreement. Probability audit rows remain visible.
+    scoring_ok = base.get("current_scoring_sharp_eligible", base.get("primary_scorer_eligible", False))
+    base["sharp_board_eligible"] = (
+        base.get("primary_scorer_eligible", False).fillna(False).astype(bool)
+        & scoring_ok.fillna(False).astype(bool)
+        & ~base["external_consensus_rejection_flag"]
+    )
     base["external_role_agreement"] = np.where(
         base["external_consensus_rejection_flag"], "DISAGREES_WITH_MODEL_ROLE",
         np.where(base["external_source_count"].ge(2), "CORROBORATES_OR_NEUTRAL", "NOT_ENOUGH_EXTERNAL_SOURCES"),
@@ -178,7 +184,11 @@ def build_external_fantasy_consensus(
     added = [c for c in base.columns if c not in p.columns]
     board_cols = [c for c in [
         "aita_player_id", "full_name", "current_team", "position", "roster_verified_current", "depth_rank",
-        "primary_scorer_eligible", "sharp_board_eligible", "fftoday_proj_fpts", "fftoday_proj_rush_td",
+        "starter_role_verified", "starter_gate_status", "primary_scorer_eligible", "current_scoring_sharp_eligible",
+        "current_scoring_suppression_flag", "current_season_scorer_tds", "current_season_scorer_td_per_game",
+        "current_season_td_multiplier", "current_season_offense_tier", "current_season_offense_score",
+        "current_season_offense_multiplier", "current_season_ppg", "current_season_offensive_td_per_game",
+        "sharp_board_eligible", "fftoday_proj_fpts", "fftoday_proj_rush_td",
         "fftoday_proj_rec_td", "fftoday_proj_scorer_td_lambda", "fftoday_anytime_td_signal",
         "fantasypros_pos_rank", "fantasypros_best_rank", "fantasypros_worst_rank", "fantasypros_avg_rank",
         "fantasypros_rank_stddev", "pfr_fantasy_points", "pfr_ppr_points", "pfr_pos_rank",
@@ -201,6 +211,10 @@ def attach_external_consensus_to_scorer_state(scorer_state: pd.DataFrame, player
         "fantasypros_avg_rank", "fantasypros_rank_stddev", "pfr_fantasy_points", "pfr_ppr_points",
         "pfr_pos_rank", "external_source_count", "external_consensus_score", "external_consensus_multiplier",
         "external_consensus_status", "external_consensus_rejection_flag", "sharp_board_eligible",
+        "starter_role_verified", "starter_gate_status", "current_scoring_sharp_eligible",
+        "current_scoring_suppression_flag", "current_season_scorer_tds", "current_season_scorer_td_per_game",
+        "current_season_td_multiplier", "current_season_offense_tier", "current_season_offense_score",
+        "current_season_offense_multiplier", "current_season_ppg", "current_season_offensive_td_per_game",
     ] if c in player_map.columns]
     if not cols:
         return s

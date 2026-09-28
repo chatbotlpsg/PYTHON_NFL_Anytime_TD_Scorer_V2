@@ -41,7 +41,8 @@ def _audit_zip(path: Path) -> dict:
         "NFL_SCORER_QB_SLATE_PROBABILITY_BOARD_", "NFL_SCORER_RB_SLATE_PROBABILITY_BOARD_",
         "NFL_SCORER_WR_SLATE_PROBABILITY_BOARD_", "NFL_SCORER_TE_SLATE_PROBABILITY_BOARD_",
         "NFL_SCORER_MATCHUP_PROBABILITY_BOARD_", "NFL_SCORER_SLATE_PROBABILITY_BOARD_",
-        "NFL_SCORER_CURRENT_ROSTER_VALIDATION_BOARD_", "NFL_SCORER_ESPN_TOP_STATS_BOARD_",
+        "NFL_SCORER_CURRENT_ROSTER_VALIDATION_BOARD_", "NFL_SCORER_CURRENT_SEASON_TEAM_OFFENSE_",
+        "NFL_SCORER_CURRENT_SEASON_PLAYER_TD_FORM_", "NFL_SCORER_ESPN_TOP_STATS_BOARD_",
         "NFL_SCORER_FANTASY_CONTEXT_BOARD_", "NFL_SCORER_FFTODAY_WEEKLY_PROJECTIONS_",
         "NFL_SCORER_FANTASYPROS_WEEKLY_RANKINGS_", "NFL_SCORER_PFR_CURRENT_FANTASY_ACTUALS_",
         "NFL_SCORER_EXTERNAL_FANTASY_CONSENSUS_BOARD_", "NFL_SCORER_DEFENSIVE_TD_VULNERABILITY_BOARD_",
@@ -69,8 +70,11 @@ def main(argv=None) -> int:
         external = cfg.get("external_fantasy", default={}) or {}
         external_required = ["enabled", "weights", "multiplier_min", "multiplier_max", "minimum_sources_for_rejection"]
         external_missing = [x for x in external_required if x not in external]
-        status = "OK" if not missing and not external_missing else "FAIL"
-        print(json.dumps({"status": status, "model_version": cfg.get("project", "model_version"), "scoring_missing": missing, "external_fantasy_missing": external_missing}, indent=2))
+        current_scoring = cfg.get("current_season_scoring", default={}) or {}
+        current_required = ["enabled", "player_prior_games", "player_multiplier_min", "player_multiplier_max", "team_multiplier_min", "team_multiplier_max", "suppression_team_percentile", "minimum_games_for_suppression"]
+        current_missing = [x for x in current_required if x not in current_scoring]
+        status = "OK" if not missing and not external_missing and not current_missing else "FAIL"
+        print(json.dumps({"status": status, "model_version": cfg.get("project", "model_version"), "scoring_missing": missing, "external_fantasy_missing": external_missing, "current_season_scoring_missing": current_missing}, indent=2))
         return 0 if status == "OK" else 1
     if args.command == "demo":
         art = run_scorer_demo(cfg, args.season, args.week, args.draws)

@@ -65,12 +65,13 @@ def build_fantasy_context(
     # Capped influence: projection is evidence of role/opportunity, not a substitute for TD modeling.
     pct = proj.groupby(p["position"]).rank(pct=True).fillna(0.5)
     p["fantasy_role_multiplier"] = (0.92 + 0.16 * pct).clip(0.92, 1.08)
-    # Verified players with a strong fantasy projection can override a missing ESPN depth rank.
-    strong = p["fantasy_projection_position_rank"].le(p["position"].map({"QB":16,"RB":30,"WR":45,"TE":24}).fillna(0))
-    p["fantasy_primary_override"] = p.get("available_for_simulation",False).astype(bool) & strong.fillna(False)
-    p["primary_scorer_eligible"] = p.get("available_for_simulation",False).astype(bool) & (p.get("primary_depth_eligible",False).astype(bool) | p["fantasy_primary_override"])
+    # Starter-only doctrine: fantasy can corroborate opportunity but can NEVER promote a backup.
+    # The ESPN current depth chart remains the hard primary/EV gate.
+    p["fantasy_primary_override"] = False
+    starter = p.get("starter_role_verified", p.get("primary_depth_eligible", False))
+    p["primary_scorer_eligible"] = p.get("available_for_simulation",False).astype(bool) & starter.astype(bool)
 
-    context_cols=[c for c in ["aita_player_id","full_name","current_team","position","roster_verified_current","depth_rank","availability_status","espn_fantasy_projected_points","espn_fantasy_actual_points","fantasy_projection_position_rank","fantasy_actual_position_rank","yahoo_fantasy_points","fantasy_role_multiplier","primary_scorer_eligible","fantasy_identity_status"] if c in p.columns]
+    context_cols=[c for c in ["aita_player_id","full_name","current_team","position","roster_verified_current","depth_rank","availability_status","espn_fantasy_projected_points","espn_fantasy_actual_points","fantasy_projection_position_rank","fantasy_actual_position_rank","yahoo_fantasy_points","fantasy_role_multiplier","starter_role_verified","starter_gate_status","primary_scorer_eligible","fantasy_identity_status"] if c in p.columns]
     board=p[context_cols].copy().sort_values(["position","fantasy_projection_position_rank"],na_position="last")
     return p, board
 
@@ -79,5 +80,5 @@ def attach_fantasy_to_scorer_state(scorer_state: pd.DataFrame, player_map: pd.Da
     if scorer_state is None or scorer_state.empty or player_map is None or player_map.empty:
         return scorer_state
     s=scorer_state.copy()
-    keep=[c for c in ["aita_player_id","espn_fantasy_projected_points","espn_fantasy_actual_points","fantasy_projection_position_rank","fantasy_actual_position_rank","yahoo_fantasy_points","fantasy_role_multiplier","primary_scorer_eligible","roster_verified_current","depth_rank"] if c in player_map.columns]
+    keep=[c for c in ["aita_player_id","espn_fantasy_projected_points","espn_fantasy_actual_points","fantasy_projection_position_rank","fantasy_actual_position_rank","yahoo_fantasy_points","fantasy_role_multiplier","starter_role_verified","starter_gate_status","primary_scorer_eligible","roster_verified_current","depth_rank"] if c in player_map.columns]
     return s.merge(player_map[keep].drop_duplicates("aita_player_id"),on="aita_player_id",how="left")

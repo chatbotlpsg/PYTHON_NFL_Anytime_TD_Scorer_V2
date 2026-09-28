@@ -29,6 +29,10 @@ from nfl_model.features.receivers import build_receiver_state
 from nfl_model.features.scoring import build_scorer_state, build_team_td_state, bootstrap_missing_scorer_state
 from nfl_model.features.fantasy_context import build_fantasy_context, attach_fantasy_to_scorer_state
 from nfl_model.features.external_fantasy_consensus import build_external_fantasy_consensus, attach_external_consensus_to_scorer_state
+from nfl_model.features.current_season_scoring import (
+    pregame_rows, build_current_season_scoring_context, attach_current_season_scoring_to_player_map,
+    attach_current_season_scoring_to_scorer_state,
+)
 from nfl_model.features.td_context import (
     build_touchdown_history, build_defensive_td_vulnerability_state, build_player_td_style_state,
     build_qb_goal_line_state, attach_scorer_context,
@@ -445,17 +449,26 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
         health["espn_transactions"] = f"DEGRADED:{type(exc).__name__}"
         pd.DataFrame().to_csv(normalized_dir / "fact_transaction_snapshot.csv", index=False)
 
-    seasons = [int(s) for s in cfg.get("history", "seasons")]
+    # Always include the current season so the pregame model can see season-to-date form.
+    # Anti-leakage filtering below removes the requested/future week before any feature is built.
+    historical_seasons = [int(s) for s in cfg.get("history", "seasons")]
+    seasons = sorted(set(historical_seasons + [int(season)]))
     nflv = NFLVerseClient(cfg.root / cfg.get("storage", "cache_dir") / "nflverse")
-    pbp = nflv.load_pbp(seasons).to_pandas()
-    player_stats = nflv.load_player_stats(seasons).to_pandas()
-    snap_counts = nflv.load_snap_counts(seasons).to_pandas()
-    # Cache the remaining historical backbone tables required by the architecture even when
-    # a particular V1 feature does not yet consume every field directly.
+    pbp = pregame_rows(nflv.load_pbp(seasons).to_pandas(), season, week)
+    player_stats = pregame_rows(nflv.load_player_stats(seasons).to_pandas(), season, week)
+    snap_counts = pregame_rows(nflv.load_snap_counts(seasons).to_pandas(), season, week)
+    schedules = pd.DataFrame()
     historical_health = {}
+    try:
+        schedules = pregame_rows(nflv.load_schedules(seasons).to_pandas(), season, week)
+        historical_health["nflverse_schedules"] = "OK"
+    except Exception as exc:
+        historical_health["nflverse_schedules"] = f"DEGRADED:{type(exc).__name__}"
+
+    # Cache the remaining historical backbone tables required by the architecture even when
+    # a particular feature does not yet consume every field directly.
     for name, loader in [
         ("team_stats", nflv.load_team_stats),
-        ("schedules", nflv.load_schedules),
         ("rosters_weekly", nflv.load_rosters_weekly),
         ("participation", nflv.load_participation),
         ("injuries", nflv.load_injuries),
@@ -476,6 +489,44 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
     player_map = _augment_player_map(qb_state, rb_state, rec_state, season, week)
     player_map = _merge_espn_ids(player_map, rosters)
     player_map = enrich_player_map_with_current_context(player_map, rosters, depths, injuries)
+
+    # --------------------------------------------------------
+    # CURRENT-SEASON SCORING FORM (PREGAME ONLY)
+    # Uses prior weeks from the current season for actual team PPG/offensive TD rate
+    # and player anytime-TD production. It never reads the requested/future week.
+    # --------------------------------------------------------
+    cs_cfg = cfg.get("current_season_scoring", default={}) or {}
+    if bool(cs_cfg.get("enabled", True)):
+        current_player_scoring, current_team_scoring = build_current_season_scoring_context(
+            player_stats, schedules, season, week,
+            player_prior_games=float(cs_cfg.get("player_prior_games", 5.0)),
+            player_multiplier_min=float(cs_cfg.get("player_multiplier_min", 0.88)),
+            player_multiplier_max=float(cs_cfg.get("player_multiplier_max", 1.10)),
+            team_multiplier_min=float(cs_cfg.get("team_multiplier_min", 0.88)),
+            team_multiplier_max=float(cs_cfg.get("team_multiplier_max", 1.10)),
+            suppression_team_percentile=float(cs_cfg.get("suppression_team_percentile", 0.20)),
+            minimum_games_for_suppression=int(cs_cfg.get("minimum_games_for_suppression", 2)),
+        )
+        player_map = attach_current_season_scoring_to_player_map(
+            player_map, current_player_scoring, current_team_scoring,
+            minimum_games_for_suppression=int(cs_cfg.get("minimum_games_for_suppression", 2)),
+        )
+        if not current_team_scoring.empty:
+            merge_cols = [c for c in current_team_scoring.columns if c != "team"]
+            team_state = team_state.merge(current_team_scoring[["team", *merge_cols]], on="team", how="left")
+        health["current_season_scoring_context"] = (
+            "OK" if (not current_player_scoring.empty and not current_team_scoring.empty)
+            else "DEGRADED:INSUFFICIENT_CURRENT_SEASON_DATA"
+        )
+    else:
+        current_player_scoring = pd.DataFrame()
+        current_team_scoring = pd.DataFrame()
+        # Keep downstream schemas stable when the optional form layer is disabled.
+        player_map = attach_current_season_scoring_to_player_map(
+            player_map, current_player_scoring, current_team_scoring,
+            minimum_games_for_suppression=int(cs_cfg.get("minimum_games_for_suppression", 2)),
+        )
+        health["current_season_scoring_context"] = "SKIPPED_DISABLED"
 
     # ESPN season-to-date team leaders: current usage/production corroboration.
     if not espn_team_leaders.empty and not player_map.empty:
@@ -674,7 +725,11 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
         player_map["external_consensus_multiplier"] = 1.0
         player_map["external_consensus_status"] = "SKIPPED_DISABLED"
         player_map["external_consensus_rejection_flag"] = False
-        player_map["sharp_board_eligible"] = player_map.get("primary_scorer_eligible", False).fillna(False).astype(bool)
+        scoring_ok = player_map.get("current_scoring_sharp_eligible", player_map.get("primary_scorer_eligible", False))
+        player_map["sharp_board_eligible"] = (
+            player_map.get("primary_scorer_eligible", False).fillna(False).astype(bool)
+            & scoring_ok.fillna(False).astype(bool)
+        )
 
     pm_errors = validate_player_map(player_map)
     if pm_errors:
@@ -686,6 +741,7 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
     scorer_state = _player_states_with_ids(scorer_state, player_map)
     qb_state, rb_state, rec_state = bootstrap_missing_role_states(player_map, qb_state, rb_state, rec_state)
     scorer_state = bootstrap_missing_scorer_state(player_map, scorer_state)
+    scorer_state = attach_current_season_scoring_to_scorer_state(scorer_state, player_map)
     scorer_state = attach_fantasy_to_scorer_state(scorer_state, player_map)
     scorer_state = attach_external_consensus_to_scorer_state(scorer_state, player_map)
 
@@ -708,6 +764,8 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
     rec_state.to_csv(normalized_dir / "receiver_state.csv", index=False)
     scorer_state.to_csv(normalized_dir / "scorer_state.csv", index=False)
     team_td_state.to_csv(normalized_dir / "team_td_state.csv", index=False)
+    current_player_scoring.to_csv(normalized_dir / "current_season_player_scoring.csv", index=False)
+    current_team_scoring.to_csv(normalized_dir / "current_season_team_offense.csv", index=False)
     espn_team_leaders.to_csv(normalized_dir / "espn_team_leaders.csv", index=False)
     espn_fantasy.to_csv(normalized_dir / "espn_fantasy_context.csv", index=False)
     yahoo_fantasy.to_csv(normalized_dir / "yahoo_fantasy_context.csv", index=False)
@@ -757,6 +815,7 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
     return {
         "slate": slate, "rosters": rosters, "depths": depths, "injuries": injuries, "transactions": transactions,
         "team_state": team_state, "qb_state": qb_state, "rb_state": rb_state, "rec_state": rec_state, "scorer_state": scorer_state, "team_td_state": team_td_state,
+        "current_season_player_scoring": current_player_scoring, "current_season_team_scoring": current_team_scoring,
         "espn_team_leaders": espn_team_leaders, "espn_fantasy": espn_fantasy, "yahoo_fantasy": yahoo_fantasy, "fantasy_context": fantasy_context,
         "fftoday": fftoday, "fantasypros": fantasypros, "pfr_fantasy": pfr_fantasy, "external_fantasy_context": external_fantasy_context,
         "td_history": td_history, "defense_td_state": defense_td_state, "td_style_state": td_style_state, "qb_goal_line_state": qb_goal_line_state,

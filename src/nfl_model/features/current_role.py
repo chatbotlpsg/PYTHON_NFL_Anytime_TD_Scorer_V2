@@ -10,7 +10,7 @@ from nfl_model.utils import normalize_name
 OUT_STATUSES = {"OUT", "INJURED RESERVE", "IR", "PUP", "SUSPENDED", "RESERVE/INJURED"}
 QUESTION_STATUSES = {"QUESTIONABLE", "DOUBTFUL"}
 SKILL_POSITIONS = {"QB", "RB", "WR", "TE"}
-PRIMARY_DEPTH_LIMIT = {"QB": 1, "RB": 3, "WR": 3, "TE": 2}
+PRIMARY_DEPTH_LIMIT = {"QB": 1, "RB": 1, "WR": 1, "TE": 1}
 
 
 def _valid_id(value: object) -> bool:
@@ -171,8 +171,9 @@ def enrich_player_map_with_current_context(
         & p["position"].isin(SKILL_POSITIONS)
     )
 
-    # Primary board gate suppresses lotto/deep-chart names. Fantasy projection can later
-    # promote a verified player through `fantasy_primary_override` in the fantasy layer.
+    # Starter-only primary board gate. Depth rank 1 is required for every scorer position.
+    # ESPN may list multiple starting WR slots; each starter can independently carry rank 1.
+    # Fantasy projections are corroboration only and may not promote a bench/deep player.
     def depth_ok(row: pd.Series) -> bool:
         pos = str(row.get("position") or "")
         limit = PRIMARY_DEPTH_LIMIT.get(pos, 0)
@@ -183,8 +184,14 @@ def enrich_player_map_with_current_context(
         return rank <= limit
 
     p["primary_depth_eligible"] = p.apply(depth_ok, axis=1)
+    p["starter_role_verified"] = p["depth_chart_verified"].astype(bool) & p["primary_depth_eligible"].astype(bool)
+    p["starter_gate_status"] = np.where(
+        ~p["available_for_simulation"].astype(bool), "NOT_AVAILABLE",
+        np.where(~p["depth_chart_verified"].astype(bool), "NO_DEPTH_VERIFICATION",
+                 np.where(p["starter_role_verified"].astype(bool), "VERIFIED_STARTER", "BENCH_OR_BACKUP"))
+    )
     p["fantasy_primary_override"] = False
-    p["primary_scorer_eligible"] = p["available_for_simulation"] & p["primary_depth_eligible"]
+    p["primary_scorer_eligible"] = p["available_for_simulation"] & p["starter_role_verified"]
     p.loc[~p["available_for_simulation"], "role_certainty_score"] = 0.0
     p.loc[~p["roster_verified_current"], "data_freshness_score"] = 0.0
     return p

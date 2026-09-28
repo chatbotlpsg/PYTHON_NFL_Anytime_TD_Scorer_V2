@@ -136,6 +136,7 @@ def simulate_scorers(
                 return pd.to_numeric(pool[col], errors="coerce").fillna(default)
             pool["fantasy_role_multiplier"] = _pool_num("fantasy_role_multiplier", 1.0).clip(0.92, 1.08)
             pool["external_consensus_multiplier"] = _pool_num("external_consensus_multiplier", 1.0).clip(0.90, 1.10)
+            pool["current_season_td_multiplier"] = _pool_num("current_season_td_multiplier", 1.0).clip(0.88, 1.10)
             pool["defense_td_multiplier"] = _pool_num("defense_td_multiplier", 1.0).clip(0.86, 1.14)
             pool["td_repeatability_multiplier"] = _pool_num("td_repeatability_multiplier", 0.98).clip(0.90, 1.08)
             pool["qb_goal_line_competition_multiplier"] = _pool_num("qb_goal_line_competition_multiplier", 1.0).clip(0.78, 1.30)
@@ -143,6 +144,7 @@ def simulate_scorers(
             pool["context_weight_multiplier"] = (
                 pool["fantasy_role_multiplier"]
                 * pool["external_consensus_multiplier"]
+                * pool["current_season_td_multiplier"]
                 * pool["defense_td_multiplier"]
                 * pool["td_repeatability_multiplier"]
                 * pool["qb_goal_line_competition_multiplier"]
@@ -236,6 +238,20 @@ def simulate_scorers(
                     "external_consensus_multiplier":float(p.get("external_consensus_multiplier",1.0) or 1.0),
                     "external_consensus_status":p.get("external_consensus_status","MODEL_ONLY_SIGNAL"),
                     "external_consensus_rejection_flag":bool(p.get("external_consensus_rejection_flag",False)),
+                    "current_season_games":int(p.get("current_season_games",0) or 0),
+                    "current_season_scorer_tds":float(p.get("current_season_scorer_tds",0.0) or 0.0),
+                    "current_season_scorer_td_per_game":float(p.get("current_season_scorer_td_per_game",0.0) or 0.0),
+                    "current_season_td_multiplier":float(p.get("current_season_td_multiplier",1.0) or 1.0),
+                    "current_season_td_status":p.get("current_season_td_status","NO_CURRENT_SEASON_MATCH"),
+                    "current_season_ppg":p.get("current_season_ppg"),
+                    "current_season_offensive_td_per_game":p.get("current_season_offensive_td_per_game"),
+                    "current_season_skill_ppr_per_game":p.get("current_season_skill_ppr_per_game"),
+                    "current_season_offense_score":p.get("current_season_offense_score"),
+                    "current_season_offense_multiplier":float(p.get("current_season_offense_multiplier",1.0) or 1.0),
+                    "current_season_offense_tier":p.get("current_season_offense_tier","INSUFFICIENT_DATA"),
+                    "current_scoring_suppression_flag":bool(p.get("current_scoring_suppression_flag",False)),
+                    "starter_role_verified":bool(p.get("starter_role_verified",False)),
+                    "starter_gate_status":p.get("starter_gate_status","UNKNOWN"),
                     "sharp_board_eligible":bool(p.get("sharp_board_eligible",p.get("primary_scorer_eligible",False))),
                     "fftoday_proj_fpts":p.get("fftoday_proj_fpts"),
                     "fftoday_proj_scorer_td_lambda":p.get("fftoday_proj_scorer_td_lambda"),

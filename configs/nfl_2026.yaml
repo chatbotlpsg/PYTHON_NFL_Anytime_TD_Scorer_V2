@@ -1,7 +1,7 @@
 project:
   name: AITA NFL Touchdown Scorer Probability + EV Pipeline
   season: 2026
-  model_version: 0.3.0a1
+  model_version: 0.4.0a1
   random_seed: 260901
 
 history:
@@ -88,6 +88,17 @@ external_fantasy:
   moderate_agreement_threshold: 0.45
   strong_agreement_threshold: 0.68
   minimum_sources_for_rejection: 2
+
+
+current_season_scoring:
+  enabled: true
+  player_prior_games: 5.0
+  player_multiplier_min: 0.88
+  player_multiplier_max: 1.10
+  team_multiplier_min: 0.88
+  team_multiplier_max: 1.10
+  suppression_team_percentile: 0.20
+  minimum_games_for_suppression: 2
 
 providers:
   espn_base: https://site.api.espn.com/apis/site/v2/sports/football/nfl

@@ -106,6 +106,9 @@ def _final_markdown(run_id: str, boards: dict[str, pd.DataFrame]) -> str:
         "Python probability/EV snapshot only. Live execution and parlay quoting belong to the separate Trading Agent.", "",
         "## Doctrine", "",
         "- Current ESPN roster verification is a hard gate. Unverified/stale historical names cannot enter primary scorer or EV boards.",
+        "- Starter verification is a hard promotion gate: primary/EV boards require ESPN depth-rank 1 at QB/RB/WR/TE; fantasy projections cannot promote backups.",
+        "- Current-season pregame scoring form uses only completed prior weeks: team PPG/offensive TD/PPR strength and player scorer TD production are bounded modifiers.",
+        "- Very-weak offenses plus zero current-season scorer TDs after the minimum sample are suppressed from sharp/EV promotion but retained in audit simulation data.",
         "- Slate position boards and matchup probability boards are market-blind and are produced before sportsbook pricing.",
         "- ESPN fantasy plus public FFToday/FantasyPros/PFR data are capped role/opportunity corroboration layers, not direct sportsbook-price inputs. Yahoo remains optional and is not required.",
         "- Defensive TD vulnerability is based on scores allowed by position and field location; yardage alone is not treated as red-zone weakness.",
@@ -127,7 +130,10 @@ def _final_markdown(run_id: str, boards: dict[str, pd.DataFrame]) -> str:
     cols = [
         "position_slate_rank", "slate_rank", "matchup_rank", "game_label", "player_name", "position", "team", "opponent",
         "p_anytime_td_raw", "p_rushing_td_raw", "p_receiving_td_raw", "fair_anytime_td_odds_raw",
-        "depth_rank", "espn_fantasy_projected_points", "fantasy_projection_position_rank",
+        "depth_rank", "starter_role_verified", "starter_gate_status",
+        "current_season_games", "current_season_scorer_tds", "current_season_scorer_td_per_game",
+        "current_season_ppg", "current_season_offensive_td_per_game", "current_season_offense_tier",
+        "current_scoring_suppression_flag", "espn_fantasy_projected_points", "fantasy_projection_position_rank",
         "fftoday_proj_fpts", "fftoday_anytime_td_signal", "fantasypros_pos_rank", "fantasypros_rank_stddev", "pfr_pos_rank",
         "external_consensus_status", "external_consensus_score", "sharp_board_eligible",
         "vulnerability_verdict", "td_style", "qb_goal_line_competition_verdict", "role_certainty_score",
@@ -233,6 +239,8 @@ def build_scorer_handoff(
     tag = f"{season}-W{week:02d}"
     _write_csv(state["slate"], run_dir / f"NFL_SCORER_SLATE_{tag}.csv")
     _write_csv(state.get("team_state", pd.DataFrame()), run_dir / f"NFL_SCORER_TEAM_STATE_{tag}.csv")
+    _write_csv(state.get("current_season_team_scoring", pd.DataFrame()), run_dir / f"NFL_SCORER_CURRENT_SEASON_TEAM_OFFENSE_{tag}.csv")
+    _write_csv(state.get("current_season_player_scoring", pd.DataFrame()), run_dir / f"NFL_SCORER_CURRENT_SEASON_PLAYER_TD_FORM_{tag}.csv")
     _write_csv(state.get("scorer_state", pd.DataFrame()), run_dir / f"NFL_SCORER_PLAYER_STATE_{tag}.csv")
     _write_csv(game_pricing, run_dir / f"NFL_SCORER_GAME_CONTEXT_BOARD_{tag}.csv")
     _write_csv(prob["qb"], run_dir / f"NFL_SCORER_QB_SLATE_PROBABILITY_BOARD_{tag}.csv")
@@ -284,10 +292,12 @@ def build_scorer_handoff(
     metadata = {
         "model_family": "AITA_NFL_TOUCHDOWN_SCORER",
         "model_version": __version__,
-        "source_foundation": "AITA_NFL_PLAYER_PROP_PIPELINE_0.3.0a4",
+        "source_foundation": "AITA_NFL_PLAYER_PROP_PIPELINE_0.4.0a1",
         "market": "player_anytime_td",
         "scorer_definition": "OFFENSIVE_RUSHING_OR_RECEIVING_TOUCHDOWN;PASSING_TD_DOES_NOT_CREDIT_PASSER;RETURN_AND_FUMBLE_RECOVERY_PLAYER_PATHS_NOT_NAMED_IN_V0.2",
-        "probability_board_doctrine": "MARKET_BLIND_CURRENT_ROSTER_VERIFIED_ROLE_GATED_EXTERNAL_CHALLENGER_BOUNDED",
+        "probability_board_doctrine": "MARKET_BLIND_CURRENT_ROSTER_VERIFIED_STARTER_ONLY_CURRENT_SEASON_SCORING_FORM_EXTERNAL_CHALLENGER_BOUNDED",
+        "starter_gate_doctrine": "PRIMARY_AND_EV_PROMOTION_REQUIRE_ESPN_DEPTH_RANK_1;FANTASY_CANNOT_OVERRIDE_BACKUP_STATUS",
+        "current_season_scoring_doctrine": "ONLY_PRIOR_COMPLETED_WEEKS;TEAM_PPG_OFFENSIVE_TD_PPR_BOUNDED_SCORE_PRIOR;PLAYER_TD_FORM_BAYES_SHRUNK;VERY_WEAK_PLUS_ZERO_TD_CAN_SUPPRESS_SHARP_PROMOTION",
         "external_consensus_doctrine": "FFTODAY_45_FANTASYPROS_35_PFR_20_NORMALIZED_OVER_AVAILABLE_SOURCES;MULTIPLIER_CAPPED_0.90_1.10;MULTISOURCE_DISAGREEMENT_CAN_BLOCK_SHARP_EV_PROMOTION",
         "ev_board_doctrine": "PRICE_SENSITIVE_CONSERVATIVE_EV",
         "parlay_doctrine": "TRADING_AGENT_MUST_USE_EMPIRICAL_JOINT_PROBABILITY_AND_LIVE_PARLAY_PAYOUT",

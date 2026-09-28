@@ -1,98 +1,117 @@
 {
-  "patch": "NFL-PLAYER-PROP-FULL-SLATE-FORECAST-BOARDS-v0.3.0a3",
-  "model_version": "0.3.0a3",
-  "purpose": "Add market-blind receiving/rushing/passing calibration boards, market-lined most-probable-side boards, immutable forecast snapshots, 500k production default, and prevent mainline market data from overwriting Layer-1 football distributions.",
+  "patch": "AITA_NFL_SCORER_STARTER_AND_2026_SCORING_CONTEXT_v0.4.0a1",
+  "model_version": "0.4.0a1",
+  "purpose": "Require verified offensive starters for primary/actionable TD recommendations and add pregame-only 2026 team scoring/player TD form to suppress weak-offense, zero-TD false positives.",
+  "starter_gate": "Current ESPN roster + available + offensive depth rank 1 at QB/RB/WR/TE; fantasy cannot override.",
+  "current_season_anti_leakage": "For requested Week W, only current-season rows with week < W enter scoring form.",
   "validation": {
-    "tests_passed": 27,
-    "compile_status": 0,
-    "demo_handoff_forecast_boards": "PASS",
-    "week1_50k_validation": {
-      "all_forecast_rows": 1120,
-      "receiving_rows": 768,
-      "rushing_rows": 256,
-      "passing_rows": 96
-    }
+    "tests_passed": 45,
+    "tests_total": 45,
+    "week3_config": "OK",
+    "offline_demo_draws": 50000,
+    "demo_handoff_audit": "OK",
+    "demo_handoff_files": 49
   },
   "files": [
     {
-      "path": ".env.example",
-      "bytes": 171,
-      "sha256": "8d4aeb0c691db61522cc4ad993aa4ef4a407f6514d96b575f14e15fb9851ee8f"
-    },
-    {
-      "path": "APPLY_FORECAST_BOARDS_PATCH_GIT_BASH.md",
-      "bytes": 3314,
-      "sha256": "581c7ab28712fb65846e068aa360f2313f4c75757b842af8bbf0f7ddfe8e414a"
-    },
-    {
-      "path": "INSTALL_COMMANDS_GIT_BASH.md",
-      "bytes": 3179,
-      "sha256": "7c3184c9aa83b1983485adb3519febd9a99a174353018283df2f9928830ca67d"
-    },
-    {
       "path": "README.md",
-      "bytes": 7458,
-      "sha256": "439d4b23f6cb347386e26eea385f1062450573ce8e9b34438f36035b1d85c16a"
+      "bytes": 4149,
+      "sha256": "331498e334a23e0dc1e877468c6694680fadb7cd5843b2a05708eeb14817ef2a"
+    },
+    {
+      "path": "UPGRADE_NOTES_v0.4.0a1.md",
+      "bytes": 3177,
+      "sha256": "a83442295a88cefc8d605a6ffe4a759885b4fac091c70439ee9ac5863ee9cbd8"
+    },
+    {
+      "path": "INSTALL_TEST_v0.4.0a1_GIT_BASH.md",
+      "bytes": 1374,
+      "sha256": "01a25332372c40dc7e80a8bcf128d2b5e1ab17d77c41f98bf2eb3a6d08cbee19"
     },
     {
       "path": "configs/nfl_2026.yaml",
-      "bytes": 2101,
-      "sha256": "9740cd97d136518b1e83228977367ace9fe81aaba667817bd5bbcb7da7f68aa2"
-    },
-    {
-      "path": "docs/BUILD_VALIDATION_REPORT.md",
-      "bytes": 3197,
-      "sha256": "a283d8208766f20deb69c389f221e29e87c3f733603db887c098a0c45a51c174"
-    },
-    {
-      "path": "docs/FORECAST_BOARD_ARCHITECTURE.md",
-      "bytes": 3207,
-      "sha256": "887af2063ac765119d3d0303c3ed41d0cf20a68be95dd3025af32ae4cab37359"
-    },
-    {
-      "path": "docs/LAYER1_TO_FULL_BUILD_CHANGELOG.md",
-      "bytes": 2925,
-      "sha256": "795c4c3045370f0ee97d65cbc460cc65a00dd7e15235639e0746c71b758f2edb"
+      "bytes": 3432,
+      "sha256": "69e969d6a14003773261cb6f774d4356f25bb69d3821ee548b132b8b12528994"
     },
     {
       "path": "pyproject.toml",
-      "bytes": 749,
-      "sha256": "4cd896ec49147bb6e61f6036ca3d96d88a31c2ecc8f8d7df50abf06173cdcef7"
+      "bytes": 844,
+      "sha256": "1f4d1d9ef20837bf6b95d7f4c6e3cdd786404ed55c1b2a11d8e4191e664b059d"
     },
     {
       "path": "src/nfl_model/__init__.py",
       "bytes": 75,
-      "sha256": "a9f981f979feec0074cd74a3b7546b579b9e06f82b4397e6a0b4ce23b55f966d"
+      "sha256": "38adfdfa8ed2e43d5bf4ce2a8669593915a466384f3cf7a11fabf9ebc4dce7ed"
     },
     {
-      "path": "src/nfl_model/boards/forecast.py",
-      "bytes": 19603,
-      "sha256": "de4d0b2cf2969d61e443e2c3d96043bcabf3644dc03fd5a2320b732c698bf1e6"
+      "path": "src/nfl_model/features/current_role.py",
+      "bytes": 12642,
+      "sha256": "27a1c79c8c2e40588f6a2bbc79f20823f4cdc55a334e1480822e2059fff49673"
     },
     {
-      "path": "src/nfl_model/cli.py",
-      "bytes": 9538,
-      "sha256": "2a662cb3804e83433c1c7ab26ad62c0e97a11061270de217994af4208e3f9f8f"
+      "path": "src/nfl_model/features/fantasy_context.py",
+      "bytes": 5356,
+      "sha256": "96d216aa506d3bfdfefdb4ece7d2e7effd672015f8cda1e864e1cadc6de0d262"
+    },
+    {
+      "path": "src/nfl_model/features/external_fantasy_consensus.py",
+      "bytes": 11988,
+      "sha256": "bbb43e7e4d5386d021e195473d13267da9d0600d25652087c4723613c55f874b"
+    },
+    {
+      "path": "src/nfl_model/features/current_season_scoring.py",
+      "bytes": 15368,
+      "sha256": "7a8331cef8fdd663646e9aeae098299f0e83931f36fe892d899e205ee220e331"
     },
     {
       "path": "src/nfl_model/pipeline.py",
-      "bytes": 58679,
-      "sha256": "9a2bf59a8a53cc9096e1b7849e656dd47e580cc9cd16ada704197b3e247eaeda"
+      "bytes": 82037,
+      "sha256": "93af624894f2e9af52dbc03544b4c5af819911f3feccc29baefde6b4dc9923ca"
     },
     {
-      "path": "src/nfl_model/providers/nws/client.py",
-      "bytes": 1471,
-      "sha256": "6eb7c5be43805635ce4a51ee6407a6ca3b9701a07184345db0c6a2e9627b9384"
+      "path": "src/nfl_model/simulation/game_state.py",
+      "bytes": 13292,
+      "sha256": "ac9006c92d6571eef3aaca6c782d91586a36778b3a4f6af767023ff9a85e320c"
     },
     {
-      "path": "tests/integration/test_demo_pipeline.py",
-      "bytes": 1202,
-      "sha256": "011a67422c47a5a5496936769a9a617b2de04704680b3d4fb7279e11af29dd9e"
+      "path": "src/nfl_model/simulation/scoring.py",
+      "bytes": 17057,
+      "sha256": "5c1dcae30fffaaae9d191479139c0c5dc213944ea196d9690a298c2be60835ba"
     },
     {
-      "path": "tests/unit/test_forecast_boards.py",
-      "bytes": 5037,
-      "sha256": "ce533d8b6803559419d3607de523408aa09122a9aa0cf00e627c7c0e8fd4417f"
+      "path": "src/nfl_model/boards/scorers.py",
+      "bytes": 14340,
+      "sha256": "a4f8d9f2e6740e53653f741cef25f1b2b22e80d71e99982712fc078ee25fe2b6"
+    },
+    {
+      "path": "src/nfl_model/pricing/scorer.py",
+      "bytes": 12221,
+      "sha256": "d96ac17bd549a06e1480f54074131fd97fbcd7affde4e5ae168596b6bd71d92f"
+    },
+    {
+      "path": "src/nfl_model/scorer_pipeline.py",
+      "bytes": 31082,
+      "sha256": "7f6c3758e7bf66aed09b4b7ab198182fc748bb9f9caa569520dd9836509c5ea4"
+    },
+    {
+      "path": "src/nfl_model/scorer_cli.py",
+      "bytes": 5332,
+      "sha256": "d4620c100963f06db1fef7df21627b2b5aefe0365c38d5cfbce82196f677cb40"
+    },
+    {
+      "path": "tests/unit/test_current_season_scoring.py",
+      "bytes": 3955,
+      "sha256": "31f368aeefb539a566a03e467c814e6900c7f6ef252e510713ff6c572f6b2de4"
+    },
+    {
+      "path": "tests/unit/test_fantasy_context.py",
+      "bytes": 1954,
+      "sha256": "7f1f16b23f7eb7a04524b2a7c969500726aa9c0644dcd472701f2a71bb142ba1"
+    },
+    {
+      "path": "tests/unit/test_scorer_roster_gate_and_context.py",
+      "bytes": 6103,
+      "sha256": "bb2e98ef418a3566a1937c8b91f01627de907aa89dca20c4e06858598331ec6a"
     }
   ]
 }

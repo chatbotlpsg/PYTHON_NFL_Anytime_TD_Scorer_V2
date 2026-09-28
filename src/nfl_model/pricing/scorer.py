@@ -88,8 +88,24 @@ def price_anytime_td_rows(
         if hasattr(meta, "get") and not bool(meta.get("available_for_simulation", False)):
             out_rows.append({**r, "model_status": "REJECTED", "rejection_reason": "CURRENT_AVAILABILITY_BLOCK"})
             continue
+        if hasattr(meta, "get") and not bool(meta.get("starter_role_verified", meta.get("primary_scorer_eligible", False))):
+            out_rows.append({
+                **r, "model_status": "REJECTED", "rejection_reason": "STARTER_GATE_FAILED",
+                "starter_gate_status": meta.get("starter_gate_status"), "depth_rank": meta.get("depth_rank"),
+            })
+            continue
         if hasattr(meta, "get") and not bool(meta.get("primary_scorer_eligible", False)):
             out_rows.append({**r, "model_status": "REJECTED", "rejection_reason": "LOW_ROLE_LOTTERY_POOL"})
+            continue
+        if hasattr(meta, "get") and bool(meta.get("current_scoring_suppression_flag", False)):
+            out_rows.append({
+                **r,
+                "model_status": "REJECTED",
+                "rejection_reason": "VERY_WEAK_OFFENSE_ZERO_CURRENT_SEASON_TDS",
+                "current_season_scorer_tds": meta.get("current_season_scorer_tds"),
+                "current_season_ppg": meta.get("current_season_ppg"),
+                "current_season_offense_tier": meta.get("current_season_offense_tier"),
+            })
             continue
         if hasattr(meta, "get") and not bool(meta.get("sharp_board_eligible", True)):
             out_rows.append({
@@ -167,6 +183,17 @@ def price_anytime_td_rows(
             "fantasypros_pos_rank": meta.get("fantasypros_pos_rank") if hasattr(meta, "get") else None,
             "pfr_pos_rank": meta.get("pfr_pos_rank") if hasattr(meta, "get") else None,
             "sharp_board_eligible": meta.get("sharp_board_eligible") if hasattr(meta, "get") else True,
+            "starter_role_verified": meta.get("starter_role_verified") if hasattr(meta, "get") else None,
+            "starter_gate_status": meta.get("starter_gate_status") if hasattr(meta, "get") else None,
+            "current_season_games": meta.get("current_season_games") if hasattr(meta, "get") else None,
+            "current_season_scorer_tds": meta.get("current_season_scorer_tds") if hasattr(meta, "get") else None,
+            "current_season_scorer_td_per_game": meta.get("current_season_scorer_td_per_game") if hasattr(meta, "get") else None,
+            "current_season_td_multiplier": meta.get("current_season_td_multiplier") if hasattr(meta, "get") else None,
+            "current_season_ppg": meta.get("current_season_ppg") if hasattr(meta, "get") else None,
+            "current_season_offensive_td_per_game": meta.get("current_season_offensive_td_per_game") if hasattr(meta, "get") else None,
+            "current_season_offense_tier": meta.get("current_season_offense_tier") if hasattr(meta, "get") else None,
+            "current_season_offense_multiplier": meta.get("current_season_offense_multiplier") if hasattr(meta, "get") else None,
+            "current_scoring_suppression_flag": meta.get("current_scoring_suppression_flag") if hasattr(meta, "get") else False,
             "probability_edge_vs_break_even_pp": (p_cons - float(row["market_raw_implied_prob"])) * 100.0,
             "model_market_disagreement_pp": disagreement * 100.0,
             "convergence_status": conv,
