@@ -21,6 +21,7 @@ from nfl_model.boards.forecast import build_full_forecast_boards, build_market_l
 from nfl_model.config import AppConfig
 from nfl_model.features.team import build_team_state
 from nfl_model.features.current_role import enrich_player_map_with_current_context, bootstrap_missing_role_states
+from nfl_model.features.game_day_overrides import apply_game_day_overrides
 from nfl_model.features.coaching import build_coaching_state
 from nfl_model.features.matchup import build_matchup_state
 from nfl_model.features.qb import build_qb_state
@@ -150,7 +151,7 @@ def _player_states_with_ids(frame: pd.DataFrame, player_map: pd.DataFrame) -> pd
     return out.drop(columns=["current_team"], errors="ignore")
 
 
-def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
+def ingest_football(cfg: AppConfig, season: int, week: int, starter_overrides: list[str] | None = None, inactive_players: list[str] | None = None) -> dict[str, Any]:
     raw_dir = cfg.root / cfg.get("storage", "raw_dir")
     normalized_dir = cfg.root / cfg.get("storage", "normalized_dir") / str(season) / f"week_{week:02d}"
     normalized_dir.mkdir(parents=True, exist_ok=True)
@@ -489,6 +490,11 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
     player_map = _augment_player_map(qb_state, rb_state, rec_state, season, week)
     player_map = _merge_espn_ids(player_map, rosters)
     player_map = enrich_player_map_with_current_context(player_map, rosters, depths, injuries)
+    player_map, game_day_override_audit = apply_game_day_overrides(player_map, starter_overrides, inactive_players)
+    if starter_overrides or inactive_players:
+        health["manual_game_day_overrides"] = f"OK:{len(game_day_override_audit)}"
+    else:
+        health["manual_game_day_overrides"] = "NONE"
 
     # --------------------------------------------------------
     # CURRENT-SEASON SCORING FORM (PREGAME ONLY)
@@ -820,7 +826,7 @@ def ingest_football(cfg: AppConfig, season: int, week: int) -> dict[str, Any]:
         "fftoday": fftoday, "fantasypros": fantasypros, "pfr_fantasy": pfr_fantasy, "external_fantasy_context": external_fantasy_context,
         "td_history": td_history, "defense_td_state": defense_td_state, "td_style_state": td_style_state, "qb_goal_line_state": qb_goal_line_state,
         "coaching_state": coaching_state, "matchup_state": matchup_state,
-        "player_map": player_map, "weather": weather, "provider_health": health,
+        "player_map": player_map, "game_day_override_audit": game_day_override_audit, "game_day_starter_overrides": starter_overrides or [], "game_day_inactive_overrides": inactive_players or [], "weather": weather, "provider_health": health,
         "normalized_dir": normalized_dir, "scoreboard_snapshot": snap,
     }
 
@@ -892,7 +898,13 @@ def simulate_slate(cfg: AppConfig, season: int, week: int, state: dict[str, Any]
             for local in [qg, rg, wg]:
                 if not local.empty and "aita_player_id" in local.columns:
                     local.drop(local[local["aita_player_id"].astype(str).isin(unavailable)].index, inplace=True)
-        qb = qg.sort_values("attempts_mean", ascending=False).iloc[0].to_dict() if not qg.empty else None
+        qb = None
+        if not qg.empty:
+            starter_ids = set()
+            if not pm.empty and "starter_role_verified" in pm.columns:
+                starter_ids = set(pm.loc[(pm["current_team"].astype(str).eq(team)) & (pm["position"].astype(str).eq("QB")) & pm["starter_role_verified"].fillna(False).astype(bool), "aita_player_id"].dropna().astype(str))
+            qstarter = qg[qg.get("aita_player_id", pd.Series(index=qg.index, dtype=str)).astype(str).isin(starter_ids)] if starter_ids else pd.DataFrame()
+            qb = (qstarter if not qstarter.empty else qg).sort_values("attempts_mean", ascending=False).iloc[0].to_dict()
         rb_list = rg.sort_values("carries_mean", ascending=False).head(4).to_dict("records") if not rg.empty else []
         wr_list = wg.sort_values("targets_mean", ascending=False).head(8).to_dict("records") if not wg.empty else []
         return qb, rb_list, wr_list

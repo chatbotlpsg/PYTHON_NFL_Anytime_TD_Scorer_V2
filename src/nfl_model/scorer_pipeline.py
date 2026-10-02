@@ -241,6 +241,7 @@ def build_scorer_handoff(
     _write_csv(state.get("team_state", pd.DataFrame()), run_dir / f"NFL_SCORER_TEAM_STATE_{tag}.csv")
     _write_csv(state.get("current_season_team_scoring", pd.DataFrame()), run_dir / f"NFL_SCORER_CURRENT_SEASON_TEAM_OFFENSE_{tag}.csv")
     _write_csv(state.get("current_season_player_scoring", pd.DataFrame()), run_dir / f"NFL_SCORER_CURRENT_SEASON_PLAYER_TD_FORM_{tag}.csv")
+    _write_csv(state.get("game_day_override_audit", pd.DataFrame()), run_dir / f"NFL_SCORER_GAMEDAY_OVERRIDE_AUDIT_{tag}.csv")
     _write_csv(state.get("scorer_state", pd.DataFrame()), run_dir / f"NFL_SCORER_PLAYER_STATE_{tag}.csv")
     _write_csv(game_pricing, run_dir / f"NFL_SCORER_GAME_CONTEXT_BOARD_{tag}.csv")
     _write_csv(prob["qb"], run_dir / f"NFL_SCORER_QB_SLATE_PROBABILITY_BOARD_{tag}.csv")
@@ -292,7 +293,7 @@ def build_scorer_handoff(
     metadata = {
         "model_family": "AITA_NFL_TOUCHDOWN_SCORER",
         "model_version": __version__,
-        "source_foundation": "AITA_NFL_PLAYER_PROP_PIPELINE_0.4.0a1",
+        "source_foundation": "AITA_NFL_PLAYER_PROP_PIPELINE_0.4.1a1",
         "market": "player_anytime_td",
         "scorer_definition": "OFFENSIVE_RUSHING_OR_RECEIVING_TOUCHDOWN;PASSING_TD_DOES_NOT_CREDIT_PASSER;RETURN_AND_FUMBLE_RECOVERY_PLAYER_PATHS_NOT_NAMED_IN_V0.2",
         "probability_board_doctrine": "MARKET_BLIND_CURRENT_ROSTER_VERIFIED_STARTER_ONLY_CURRENT_SEASON_SCORING_FORM_EXTERNAL_CHALLENGER_BOUNDED",
@@ -315,6 +316,8 @@ def build_scorer_handoff(
         "config_hash": cfg.config_hash,
         "simulation_count": int(len(next(iter(draws.values()))) if draws else 0),
         "slate_date": state.get("selected_slate_date"),
+        "game_day_starter_overrides": state.get("game_day_starter_overrides", []),
+        "game_day_inactive_overrides": state.get("game_day_inactive_overrides", []),
         "pipeline_boundary": boundary_manifest(),
     }
     (run_dir / f"NFL_SCORER_RUN_MANIFEST_{tag}.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
@@ -342,10 +345,12 @@ def run_scorer_live(
     slate_date: str | None = None,
     selected_aita_event_ids: list[str] | None = None,
     slate_label: str | None = None,
+    starter_overrides: list[str] | None = None,
+    inactive_players: list[str] | None = None,
 ) -> ScorerPipelineArtifacts:
     load_dotenv(cfg.root / ".env")
     run_id = make_scorer_run_id(season, week, slate_label or (slate_date.replace("-", "") if slate_date else None))
-    state = ingest_football(cfg, season, week)
+    state = ingest_football(cfg, season, week, starter_overrides=starter_overrides, inactive_players=inactive_players)
     state = _subset_by_date(state, slate_date)
     state = _subset_state_for_slate(state, selected_aita_event_ids)
     draws_n = int(draws_n or cfg.get("simulation", "production_draws", default=500000))

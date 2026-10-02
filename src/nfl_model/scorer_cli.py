@@ -30,6 +30,8 @@ def _parser() -> argparse.ArgumentParser:
     r.add_argument("--slate-date", help="NFL calendar date YYYY-MM-DD; filters the weekly ESPN slate before simulation")
     r.add_argument("--aita-event-id", action="append", help="Optional repeatable AITA event-id filter")
     r.add_argument("--slate-label", help="Optional immutable run label, e.g. SUN_0913")
+    r.add_argument("--starter-override", action="append", help="Repeatable game-day starter override TEAM:POS:PLAYER, e.g. CHI:QB:Case Keenum")
+    r.add_argument("--inactive-player", action="append", help="Repeatable game-day inactive override TEAM:PLAYER, e.g. CHI:Caleb Williams")
 
     a = sub.add_parser("audit-handoff")
     a.add_argument("--zip", required=True)
@@ -81,7 +83,7 @@ def main(argv=None) -> int:
         print(f"RUN_ID={art.run_id}\nHANDOFF_ZIP={art.handoff_zip}")
         return 0
     if args.command == "run":
-        art = run_scorer_live(cfg, args.season, args.week, args.draws, args.slate_date, args.aita_event_id, args.slate_label)
+        art = run_scorer_live(cfg, args.season, args.week, args.draws, args.slate_date, args.aita_event_id, args.slate_label, args.starter_override, args.inactive_player)
         print(f"RUN_ID={art.run_id}\nHANDOFF_ZIP={art.handoff_zip}")
         return 0
     if args.command == "audit-handoff":
